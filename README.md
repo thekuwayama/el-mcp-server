@@ -16,7 +16,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | `list_epc` | 機器クラスの EPC（プロパティコード）一覧を取得 |
 | `get_epc_detail` | 特定 EPC の詳細（データ型・単位・アクセス規則）を取得 |
 
-収録機器クラス: ノードプロファイル / 温度・湿度・CO2 センサ / 家庭用エアコン / 電気温水器 / 太陽光発電 / 燃料電池 / 蓄電池 / EV 充放電器 / 分電盤メタリング / 低圧スマート電力量メータ / 一般照明 / EV 充電器（全 14 クラス + スーパークラス共通 EPC）
+収録機器クラス: ノードプロファイル / 温度・湿度・CO2 センサ / 家庭用エアコン / 電気温水器 / 太陽光発電 / 燃料電池 / 蓄電池 / EV 充放電器 / 分電盤メタリング / 低圧スマート電力量メータ / 一般照明 / EV 充電器（全 14 クラス、計 388 EPC + スーパークラス共通 24 EPC）
 
 ### ネットワーク（UDP 通信）
 
@@ -35,7 +35,27 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 
 ## アーキテクチャ
 
-MCP サーバーは、ツール呼び出しのたびに自身が動いているマシンの LAN 上の ECHONET Lite 機器へ UDP でリアルタイムに問い合わせます（オンデマンド型。事前のデータ蓄積はしません）。
+3 種のツール群はデータの取得方法が異なります。
+
+### 仕様検索（静的データ）
+
+MRA JSON はビルド時にバイナリへ埋め込まれます。ツール呼び出し時の外部通信はなく、プロセス内で完結します。
+
+```mermaid
+sequenceDiagram
+    participant AI as AI (MCP クライアント)
+    participant S as el-mcp-server
+
+    Note over AI,S: MCP プロトコル (stdio / HTTP)
+
+    AI->>S: tools/call search_device_class / list_epc / get_epc_detail
+    Note over S: 埋め込み MRA JSON を検索<br/>（外部通信なし）
+    S-->>AI: 機器クラス / EPC 定義
+```
+
+### ネットワーク（UDP 通信）
+
+ツール呼び出しのたびに同一 LAN 上の機器へ UDP でリアルタイムに問い合わせます（オンデマンド型。事前のデータ蓄積はしません）。
 
 ```mermaid
 sequenceDiagram
@@ -56,7 +76,26 @@ sequenceDiagram
     S-->>AI: プロパティ値 (hex)
 ```
 
-このため `discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。Docker のブリッジネットワーク内からはマルチキャストが LAN に届かないため、機器探索を使う場合はホスト上で直接バイナリを実行してください。
+`discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。Docker のブリッジネットワーク内からはマルチキャストが LAN に届かないため、機器探索を使う場合はホスト上で直接バイナリを実行してください。
+
+### 製品検索（HTTP）
+
+ツール呼び出し時に echonet.jp へ HTTP リクエストを送り、レスポンスの HTML をパースして返します。
+
+```mermaid
+sequenceDiagram
+    participant AI as AI (MCP クライアント)
+    participant S as el-mcp-server
+    participant W as echonet.jp
+
+    Note over AI,S: MCP プロトコル (stdio / HTTP)
+
+    AI->>S: tools/call search_certified_products
+    S->>W: HTTP POST /product/echonet-lite/<br/>（検索フォームパラメータ）
+    W-->>S: HTML レスポンス
+    Note over S: HTML をパースして製品一覧を抽出
+    S-->>AI: 製品名・メーカー・認証番号 等
+```
 
 ## ビルド
 
