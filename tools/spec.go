@@ -84,7 +84,7 @@ type epcSummary struct {
 func listEPC(_ context.Context, _ *mcp.CallToolRequest, params *listEPCParams) (*mcp.CallToolResult, any, error) {
 	cls, ok := findClass(params.EOJ)
 	if !ok {
-		return textResult(fmt.Sprintf("EOJ '%s' の機器クラスが見つかりません。search_device_class で検索してください。", params.EOJ)), nil, nil
+		return errorResult(fmt.Sprintf("EOJ '%s' の機器クラスが見つかりません。search_device_class で検索してください。", params.EOJ)), nil, nil
 	}
 
 	type response struct {
@@ -121,7 +121,7 @@ type epcDetail struct {
 func getEPCDetail(_ context.Context, _ *mcp.CallToolRequest, params *getEPCDetailParams) (*mcp.CallToolResult, any, error) {
 	epcCode, err := parseHexByte(params.EPC)
 	if err != nil {
-		return textResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
+		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
 	}
 
 	// search in super class first
@@ -133,14 +133,14 @@ func getEPCDetail(_ context.Context, _ *mcp.CallToolRequest, params *getEPCDetai
 
 	cls, ok := findClass(params.EOJ)
 	if !ok {
-		return textResult(fmt.Sprintf("EOJ '%s' の機器クラスが見つかりません。", params.EOJ)), nil, nil
+		return errorResult(fmt.Sprintf("EOJ '%s' の機器クラスが見つかりません。", params.EOJ)), nil, nil
 	}
 	for _, e := range cls.EPCs {
 		if e.Code == epcCode {
 			return jsonResult(toEPCDetail(e))
 		}
 	}
-	return textResult(fmt.Sprintf("EOJ %s に EPC %s が定義されていません。", params.EOJ, params.EPC)), nil, nil
+	return errorResult(fmt.Sprintf("EOJ %s に EPC %s が定義されていません。", params.EOJ, params.EPC)), nil, nil
 }
 
 // --- helpers ---
@@ -192,10 +192,17 @@ func textResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: msg}}}
 }
 
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
+	}
+}
+
 func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, nil, err
+		return errorResult(fmt.Sprintf("JSON marshal エラー: %v", err)), nil, nil
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, v, nil
 }

@@ -42,7 +42,7 @@ func discoverDevices(_ context.Context, _ *mcp.CallToolRequest, params *discover
 
 	results, err := echonet.Discover(timeout)
 	if err != nil {
-		return nil, nil, fmt.Errorf("discover: %w", err)
+		return errorResult(fmt.Sprintf("機器探索エラー: %v", err)), nil, nil
 	}
 
 	if len(results) == 0 {
@@ -78,17 +78,17 @@ type propertyValue struct {
 func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyParams) (*mcp.CallToolResult, any, error) {
 	eoj, err := echonet.ParseEOJHex(params.EOJ)
 	if err != nil {
-		return textResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
+		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
 	}
 
 	epcCode, err := parseHexByte(params.EPC)
 	if err != nil {
-		return textResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
+		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
 	}
 
 	edt, err := echonet.GetProperty(params.IP, eoj, epcCode, 5*time.Second)
 	if err != nil {
-		return textResult(fmt.Sprintf("プロパティ取得エラー: %v", err)), nil, nil
+		return errorResult(fmt.Sprintf("プロパティ取得エラー: %v", err)), nil, nil
 	}
 
 	hexParts := make([]string, len(edt))

@@ -49,12 +49,12 @@ func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *
 
 	body, err := fetchProductPage(params.Maker, params.Category, params.Keyword, limit)
 	if err != nil {
-		return nil, nil, fmt.Errorf("製品ページ取得エラー: %w", err)
+		return errorResult(fmt.Sprintf("製品ページ取得エラー: %v", err)), nil, nil
 	}
 
 	products, err := parseProductHTML(body, limit)
 	if err != nil {
-		return nil, nil, fmt.Errorf("HTMLパースエラー: %w", err)
+		return errorResult(fmt.Sprintf("HTMLパースエラー: %v", err)), nil, nil
 	}
 
 	if len(products) == 0 {
