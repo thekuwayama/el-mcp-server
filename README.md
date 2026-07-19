@@ -87,7 +87,7 @@ sequenceDiagram
     Note over AI,S: MCP プロトコル (stdio / HTTP)
 
     AI->>+S: tools/call discover_devices
-    S->>+D: UDP マルチキャスト 224.0.23.0:3610<br/>Get インスタンスリスト (EPC 0xD6)
+    S->>+D: UDP マルチキャスト 224.0.23.0:3610<br/>Get インスタンスリスト (EPC D6)
     D-->>-S: Get_Res (保有オブジェクトの EOJ 一覧)
     S-->>-AI: 機器の IP / EOJ 一覧
 
