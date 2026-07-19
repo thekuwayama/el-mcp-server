@@ -18,7 +18,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 
 収録機器クラス: ノードプロファイル / 温度・湿度・CO2 センサ / 家庭用エアコン / 電気温水器 / 太陽光発電 / 燃料電池 / 蓄電池 / EV 充放電器 / 分電盤メタリング / 低圧スマート電力量メータ / 一般照明 / EV 充電器（全 14 クラス、計 388 EPC + スーパークラス共通 24 EPC）
 
-### ネットワーク（UDP 通信）
+### ECHONET Lite 機器通信（UDP / LAN）
 
 同一 LAN 上の ECHONET Lite 機器と UDP（ポート 3610）で通信します。
 
@@ -53,7 +53,7 @@ sequenceDiagram
     S-->>AI: 機器クラス / EPC 定義
 ```
 
-### ネットワーク（UDP 通信）
+### ECHONET Lite 機器通信（UDP / LAN）
 
 ツール呼び出しのたびに同一 LAN 上の機器へ UDP でリアルタイムに問い合わせます（オンデマンド型。事前のデータ蓄積はしません）。
 
