@@ -100,7 +100,10 @@ func fetchProductPage(maker, category, keyword string, limit int) (string, error
 }
 
 // parseProductHTML extracts product entries from the search result HTML.
-// The page uses a card-based layout; we collect text blocks and heuristically extract fields.
+// Each product is in a <div class="col-sm-4"> containing:
+//   - <h3 class="name"> with product name text and <small> for maker
+//   - <p><small> for cert number, appendix version
+//   - <p> for cert date
 func parseProductHTML(body string, limit int) ([]certifiedProduct, error) {
 	doc, err := html.Parse(strings.NewReader(body))
 	if err != nil {
@@ -113,11 +116,12 @@ func parseProductHTML(body string, limit int) ([]certifiedProduct, error) {
 		if len(products) >= limit {
 			return
 		}
-		if isElement(n, "article") || hasClass(n, "product-item") || hasClass(n, "product_item") || hasClass(n, "item") {
+		if isElement(n, "div") && hasClass(n, "col-sm-4") {
 			p := extractProduct(n)
-			if p.CertNumber != "" || p.Name != "" {
+			if p.CertNumber != "" {
 				products = append(products, p)
 			}
+			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
@@ -125,78 +129,40 @@ func parseProductHTML(body string, limit int) ([]certifiedProduct, error) {
 	}
 	walk(doc)
 
-	// fallback: if nothing found via structured walk, extract all text with cert number patterns
-	if len(products) == 0 {
-		products = extractByPattern(doc, limit)
-	}
-
 	return products, nil
 }
 
 func extractProduct(n *html.Node) certifiedProduct {
 	var p certifiedProduct
-	texts := collectTexts(n)
-	for _, t := range texts {
-		t = strings.TrimSpace(t)
-		if strings.HasPrefix(t, "ENL認証登録番号") || strings.HasPrefix(t, "認証登録番号") {
-			parts := strings.SplitN(t, ":", 2)
-			if len(parts) == 2 {
-				p.CertNumber = strings.TrimSpace(parts[1])
-			}
-		} else if strings.HasPrefix(t, "Appendixバージョン") {
-			parts := strings.SplitN(t, ":", 2)
-			if len(parts) == 2 {
-				p.AppendixVer = strings.TrimSpace(parts[1])
-			}
-		} else if strings.HasPrefix(t, "ENL認証登録日") || strings.HasPrefix(t, "認証登録日") {
-			parts := strings.SplitN(t, ":", 2)
-			if len(parts) == 2 {
-				p.CertDate = strings.TrimSpace(parts[1])
-			}
-		} else if p.Name == "" && len(t) > 3 && !strings.Contains(t, ":") {
-			p.Name = t
-		}
-	}
-	return p
-}
-
-func extractByPattern(n *html.Node, limit int) []certifiedProduct {
-	var current *certifiedProduct
-	var products []certifiedProduct
 
 	var walk func(*html.Node)
 	walk = func(node *html.Node) {
-		if len(products) >= limit {
-			return
-		}
-		if node.Type == html.TextNode {
-			t := strings.TrimSpace(node.Data)
-			if t == "" {
-				return
+		if isElement(node, "h3") && hasClass(node, "name") {
+			// first direct text node = product name, <small> = maker
+			for c := node.FirstChild; c != nil; c = c.NextSibling {
+				if c.Type == html.TextNode {
+					if t := strings.TrimSpace(c.Data); t != "" && p.Name == "" {
+						p.Name = t
+					}
+				}
+				if isElement(c, "small") {
+					if t := strings.TrimSpace(textContent(c)); t != "" {
+						p.Maker = t
+					}
+				}
 			}
-			if strings.Contains(t, "ENL認証登録番号") || strings.Contains(t, "認証登録番号 :") {
-				if current != nil && current.CertNumber != "" {
-					products = append(products, *current)
-				}
-				current = &certifiedProduct{}
-				parts := strings.SplitN(t, ":", 2)
-				if len(parts) == 2 {
-					current.CertNumber = strings.TrimSpace(parts[1])
-				}
-			} else if current != nil {
-				if strings.Contains(t, "Appendixバージョン") {
-					parts := strings.SplitN(t, ":", 2)
-					if len(parts) == 2 {
-						current.AppendixVer = strings.TrimSpace(parts[1])
-					}
-				} else if strings.Contains(t, "認証登録日") {
-					parts := strings.SplitN(t, ":", 2)
-					if len(parts) == 2 {
-						current.CertDate = strings.TrimSpace(parts[1])
-					}
-				} else if current.Name == "" && len(t) > 3 {
-					current.Name = t
-				}
+		}
+		if isElement(node, "p") {
+			t := strings.TrimSpace(textContent(node))
+			switch {
+			case strings.Contains(t, "ENL認証登録番号"):
+				p.CertNumber = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
+			case strings.Contains(t, "Appendixバージョン"):
+				p.AppendixVer = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
+			case strings.Contains(t, "ENL認証登録日") || strings.Contains(t, "認証登録日"):
+				p.CertDate = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
+			case p.Name == "" && !strings.Contains(t, ":") && len(t) > 3:
+				p.Name = t
 			}
 		}
 		for c := node.FirstChild; c != nil; c = c.NextSibling {
@@ -205,10 +171,22 @@ func extractByPattern(n *html.Node, limit int) []certifiedProduct {
 	}
 	walk(n)
 
-	if current != nil && current.CertNumber != "" {
-		products = append(products, *current)
+	return p
+}
+
+func textContent(n *html.Node) string {
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.TextNode {
+			sb.WriteString(node.Data)
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
 	}
-	return products
+	walk(n)
+	return sb.String()
 }
 
 func collectTexts(n *html.Node) []string {
