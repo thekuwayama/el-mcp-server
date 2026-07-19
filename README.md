@@ -8,7 +8,7 @@ ECHONET Lite の情報を AI から利用可能にする、読み取り専用の
 
 すべて読み取り専用（`ReadOnlyHint: true`）です。3 系統のツール群があります:
 
-- **仕様検索** — 埋め込み MRA JSON をプロセス内で検索 (外部通信なし)
+- **仕様検索** — 埋め込み (`//go:embed`) MRA JSON をプロセス内で検索 (外部通信なし)
 - **機器通信** — LAN 上の ECHONET Lite 機器へ UDP で問い合わせ
 - **製品検索** — echonet.jp へ HTTP でリクエスト
 
