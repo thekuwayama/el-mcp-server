@@ -78,6 +78,8 @@ sequenceDiagram
 
 `discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。Docker のブリッジネットワーク内からはマルチキャストが LAN に届かないため、機器探索を使う場合はホスト上で直接バイナリを実行してください。
 
+同一ホスト上で ECHONET Lite エミュレータと el-mcp-server を併用する場合、両者が UDP ポート 3610 を同時に占有できないため `discover_devices` は使用できません。エミュレータの IP（`127.0.0.1`）と EOJ があらかじめわかっている場合は、`discover_devices` を経由せず直接 `get_property` を呼び出してください。
+
 ### 製品検索（HTTP）
 
 ツール呼び出し時に echonet.jp へ HTTP リクエストを送り、レスポンスの HTML をパースして返します。

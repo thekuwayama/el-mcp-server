@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/net/ipv4"
 )
 
 var tidCounter atomic.Uint32
@@ -61,6 +63,10 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		return nil, fmt.Errorf("listen udp: %w", err)
 	}
 	defer conn.Close()
+
+	// Enable multicast loopback so that emulators running on the same host respond.
+	p := ipv4.NewPacketConn(conn)
+	_ = p.SetMulticastLoopback(true)
 
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	if err := conn.SetDeadline(deadline); err != nil {
