@@ -147,7 +147,39 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 - [ECHONET Lite 認証製品検索](https://echonet.jp/product/echonet-lite/) — `search_certified_products` が実行時に取得
 - [メーカーコード一覧](https://echonet.jp/wp/wp-content/uploads/pdf/General/Echonet/ManufacturerCode/list_code.xlsx) — EPC 0x8A の解決用。`echonet/spec/manufacturers/codes.json` に収録し、ビルド時に埋め込み。`/update-manufacturer-codes` スキルで更新可能
 
-仕様は [echonet.jp の仕様総合ページ](https://echonet.jp/spec_g/)から辿れます。MRA データの更新は Claude Code スキル `/update-mra`（`.claude/skills/update-mra/SKILL.md`）で行えます: 最新版の発見 → ダウンロード → `echonet/spec/mra/` の差し替え → 動作確認 → コミット、までを対話的に実行します。
+仕様は [echonet.jp の仕様総合ページ](https://echonet.jp/spec_g/) から辿れます。
+
+## MRA データ更新手順
+
+`echonet/spec/mra/` の JSON を最新の MRA (Machine Readable Appendix) に差し替える手順です。Claude Code スキル `/update-mra`（`.claude/skills/update-mra/SKILL.md`）で対話的に実行することもできます。
+
+1. 最新版の発見: [仕様総合ページ](https://echonet.jp/spec_g/) → 「Appendix ECHONET 機器オブジェクト詳細規定」の MRA ページ (`https://echonet.jp/spec_mra_rrN/`) を辿り、zip URL とバージョン文字列 (例: `MRA_v1.4.0`) を特定する。zip URL・配布ページ URL は版ごとに変わるためハードコードしない。
+
+2. ダウンロードと差し替え: `cmd/update-mra` が VERSION 比較・ダウンロード・展開・コピーをまとめて行います。
+
+   ```shell-session
+   $ go run ./cmd/update-mra \
+       "https://echonet.jp/wp/wp-content/uploads/pdf/General/Standard/MRA/MRA_vX.Y.Z.zip" \
+       MRA_vX.Y.Z
+   ```
+
+   `already up to date` が出た場合は差分なしで終了。
+
+3. ビルドと動作確認:
+
+   ```shell-session
+   $ go build -o el-mcp-server .
+   ```
+
+   HTTP モードで起動し、MCP 経由で `search_device_class` / `list_epc` / `get_epc_detail` が正常に返ることを確認します。起動時に panic する場合は MRA の JSON スキーマが変わっているので、`echonet/spec/load.go` の `mraDevice` / `mraProp` / `mraData` を新スキーマに合わせて修正します。
+
+4. 差分確認とコミット:
+
+   ```shell-session
+   $ git diff --stat echonet/spec/mra/
+   ```
+
+   EPC の追加・削除・名称変更をサマリしたうえでコミットします。
 
 ## 制限事項
 
