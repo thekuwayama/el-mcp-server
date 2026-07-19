@@ -1,0 +1,32 @@
+name: Generated files are up to date
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate manufacturer codes
+        run: |
+          URL=$(sed -n '2p' echonet/spec/manufacturers/VERSION)
+          curl -fsSL -o /tmp/list_code.xlsx "$URL"
+          go run ./cmd/gen-manufacturers /tmp/list_code.xlsx
+
+      - name: Regenerate MRA spec
+        run: |
+          VERSION=$(head -1 echonet/spec/mra/VERSION)
+          URL=$(sed -n '2p' echonet/spec/mra/VERSION)
+          go run ./cmd/update-mra "$URL" "$VERSION"
+
+      - name: Check for diff
+        run: git diff --exit-code echonet/spec/manufacturers/codes.json echonet/spec/mra/
