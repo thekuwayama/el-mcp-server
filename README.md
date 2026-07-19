@@ -33,6 +33,31 @@ ECHONET Lite Appendix Release R をもとにした静的データを検索しま
 |---|---|
 | `search_certified_products` | [echonet.jp](https://echonet.jp/product/echonet-lite/) の認証登録製品を検索 |
 
+## アーキテクチャ
+
+MCP サーバーは、ツール呼び出しのたびに自身が動いているマシンの LAN 上の ECHONET Lite 機器へ UDP でリアルタイムに問い合わせます（オンデマンド型。事前のデータ蓄積はしません）。
+
+```mermaid
+sequenceDiagram
+    participant AI as AI (MCP クライアント)
+    participant S as el-mcp-server
+    participant D as ECHONET Lite 機器<br/>(同一 LAN)
+
+    Note over AI,S: MCP プロトコル (stdio / HTTP)
+
+    AI->>S: tools/call discover_devices
+    S->>D: UDP マルチキャスト 224.0.23.0:3610<br/>Get インスタンスリスト (EPC 0xD6)
+    D-->>S: Get_Res (保有オブジェクトの EOJ 一覧)
+    S-->>AI: 機器の IP / EOJ 一覧
+
+    AI->>S: tools/call get_property (ip, eoj, epc)
+    S->>D: UDP ユニキャスト <ip>:3610<br/>Get (指定 EPC)
+    D-->>S: Get_Res (プロパティ値 EDT)
+    S-->>AI: プロパティ値 (hex)
+```
+
+このため `discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。Docker のブリッジネットワーク内からはマルチキャストが LAN に届かないため、機器探索を使う場合はホスト上で直接バイナリを実行してください。
+
 ## ビルド
 
 ```bash
