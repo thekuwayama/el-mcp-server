@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/thekuwayama/el-mcp-server/echonet"
+	"github.com/thekuwayama/el-mcp-server/echonet/spec/manufacturers"
 )
 
 func registerNetworkTools(s *mcp.Server) {
@@ -66,11 +67,12 @@ type getPropertyParams struct {
 }
 
 type propertyValue struct {
-	IP      string `json:"ip"`
-	EOJ     string `json:"eoj"`
-	EPC     string `json:"epc"`
-	EDTHex  string `json:"edt_hex"`
-	EDTBytes int   `json:"edt_bytes"`
+	IP               string `json:"ip"`
+	EOJ              string `json:"eoj"`
+	EPC              string `json:"epc"`
+	EDTHex           string `json:"edt_hex"`
+	EDTBytes         int    `json:"edt_bytes"`
+	ManufacturerName string `json:"manufacturer_name,omitempty"`
 }
 
 func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyParams) (*mcp.CallToolResult, any, error) {
@@ -100,6 +102,11 @@ func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyP
 		EPC:      strings.ToUpper(params.EPC),
 		EDTHex:   strings.Join(hexParts, " "),
 		EDTBytes: len(edt),
+	}
+	if epcCode == 0x8A {
+		if name, ok := manufacturers.Lookup(edt); ok {
+			result.ManufacturerName = name
+		}
 	}
 	return jsonResult(result)
 }
