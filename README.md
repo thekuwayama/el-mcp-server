@@ -48,9 +48,9 @@ sequenceDiagram
 
     Note over AI,S: MCP プロトコル (stdio / HTTP)
 
-    AI->>S: tools/call search_device_class / list_epc / get_epc_detail
+    AI->>+S: tools/call search_device_class / list_epc / get_epc_detail
     Note over S: 埋め込み MRA JSON を検索<br/>（外部通信なし）
-    S-->>AI: 機器クラス / EPC 定義
+    S-->>-AI: 機器クラス / EPC 定義
 ```
 
 ### ECHONET Lite 機器通信（UDP / LAN）
@@ -65,15 +65,15 @@ sequenceDiagram
 
     Note over AI,S: MCP プロトコル (stdio / HTTP)
 
-    AI->>S: tools/call discover_devices
-    S->>D: UDP マルチキャスト 224.0.23.0:3610<br/>Get インスタンスリスト (EPC 0xD6)
-    D-->>S: Get_Res (保有オブジェクトの EOJ 一覧)
-    S-->>AI: 機器の IP / EOJ 一覧
+    AI->>+S: tools/call discover_devices
+    S->>+D: UDP マルチキャスト 224.0.23.0:3610<br/>Get インスタンスリスト (EPC 0xD6)
+    D-->>-S: Get_Res (保有オブジェクトの EOJ 一覧)
+    S-->>-AI: 機器の IP / EOJ 一覧
 
-    AI->>S: tools/call get_property (ip, eoj, epc)
-    S->>D: UDP ユニキャスト <ip>:3610<br/>Get (指定 EPC)
-    D-->>S: Get_Res (プロパティ値 EDT)
-    S-->>AI: プロパティ値 (hex)
+    AI->>+S: tools/call get_property (ip, eoj, epc)
+    S->>+D: UDP ユニキャスト <ip>:3610<br/>Get (指定 EPC)
+    D-->>-S: Get_Res (プロパティ値 EDT)
+    S-->>-AI: プロパティ値 (hex)
 ```
 
 `discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。Docker のブリッジネットワーク内からはマルチキャストが LAN に届かないため、機器探索を使う場合はホスト上で直接バイナリを実行してください。
@@ -92,11 +92,11 @@ sequenceDiagram
 
     Note over AI,S: MCP プロトコル (stdio / HTTP)
 
-    AI->>S: tools/call search_certified_products
-    S->>W: HTTP POST /product/echonet-lite/<br/>（検索フォームパラメータ）
-    W-->>S: HTML レスポンス
+    AI->>+S: tools/call search_certified_products
+    S->>+W: HTTP POST /product/echonet-lite/<br/>（検索フォームパラメータ）
+    W-->>-S: HTML レスポンス
     Note over S: HTML をパースして製品一覧を抽出
-    S-->>AI: 製品名・メーカー・認証番号 等
+    S-->>-AI: 製品名・メーカー・認証番号 等
 ```
 
 ## ビルド
