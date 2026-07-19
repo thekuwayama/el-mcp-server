@@ -65,5 +65,6 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 
 ## 制限事項
 
+- 認証機構を実装していません。[MCP の Authorization 仕様](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)では、認証をサポートする場合、HTTP ベーストランスポートの実装は OAuth 2.1 ベースの同仕様に準拠すべき（SHOULD）とされていますが、本サーバーは未対応です。HTTP モードは信頼できるネットワーク内でのみ使用してください
 - 読み取り専用です。機器への書き込み（SetC/SetI）は実装していません
 - `search_certified_products` の検索パラメータは echonet.jp のフォーム仕様に依存するため、絞り込みが効かない場合があります
