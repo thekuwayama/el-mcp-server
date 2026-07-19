@@ -6,7 +6,11 @@ ECHONET Lite の情報を AI から利用可能にする、読み取り専用の
 
 ## 提供する MCP ツール
 
-すべて読み取り専用（`ReadOnlyHint: true`）です。
+すべて読み取り専用（`ReadOnlyHint: true`）です。3 系統のツール群があります:
+
+- **仕様検索** — 埋め込み MRA JSON をプロセス内で検索 (外部通信なし)
+- **機器通信** — LAN 上の ECHONET Lite 機器へ UDP で問い合わせ
+- **製品検索** — echonet.jp へ HTTP でリクエスト
 
 ### 仕様検索（静的データ）
 
