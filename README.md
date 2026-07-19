@@ -8,7 +8,7 @@ ECHONET Lite の情報を AI から利用可能にする、読み取り専用の
 
 ### 仕様検索（静的データ）
 
-ECHONET Lite Appendix Release R をもとにした静的データを検索します。
+ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)](https://echonet.jp/spec_mra_rr3/) の JSON データを埋め込んで検索します。
 
 | ツール | 概要 |
 |---|---|
@@ -85,8 +85,10 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 ## データソース
 
 - [ECHONET Lite 規格書 Ver.1.14](https://echonet.jp/spec_v114_lite/) — フレーム構造・UDP 通信仕様
-- [Appendix ECHONET 機器オブジェクト詳細規定 Release R](https://echonet.jp/spec_object_rr/) — 機器クラス・EPC 定義（静的データとして収録）
+- [MRA (Machine Readable Appendix) v1.4.0](https://echonet.jp/spec_mra_rr3/) — 機器クラス・EPC 定義。Appendix Release R の公式 JSON 版を `echonet/spec/mra/` に収録し、ビルド時に埋め込み
 - [ECHONET Lite 認証製品検索](https://echonet.jp/product/echonet-lite/) — `search_certified_products` が実行時に取得
+
+仕様は [echonet.jp の仕様総合ページ](https://echonet.jp/spec_g/)から辿れます。MRA データの更新は Claude Code スキル `/update-mra`（`.claude/skills/update-mra/SKILL.md`）で行えます: 最新版の発見 → ダウンロード → `echonet/spec/mra/` の差し替え → 動作確認 → コミット、までを対話的に実行します。
 
 ## 制限事項
 
