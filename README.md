@@ -25,7 +25,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | ツール | 概要 |
 |---|---|
 | `discover_devices` | マルチキャスト（224.0.23.0）で LAN 内の機器を探索 |
-| `get_property` | 指定機器の EPC プロパティ値を Get で取得 |
+| `get_property` | 指定機器の EPC プロパティ値を Get で取得。EPC 0x8A（メーカーコード）は `manufacturer_name` フィールドも自動付与 |
 
 ### 製品検索（HTTP）
 
@@ -128,6 +128,7 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 - [ECHONET Lite 規格書 Ver.1.14](https://echonet.jp/spec_v114_lite/) — フレーム構造・UDP 通信仕様
 - [MRA (Machine Readable Appendix) v1.4.0](https://echonet.jp/spec_mra_rr3/) — 機器クラス・EPC 定義。Appendix Release R の公式 JSON 版を `echonet/spec/mra/` に収録し、ビルド時に埋め込み
 - [ECHONET Lite 認証製品検索](https://echonet.jp/product/echonet-lite/) — `search_certified_products` が実行時に取得
+- [メーカーコード一覧](https://echonet.jp/wp/wp-content/uploads/pdf/General/Echonet/ManufacturerCode/list_code.xlsx) — EPC 0x8A の解決用。`echonet/spec/manufacturers/codes.json` に収録し、ビルド時に埋め込み。`/update-manufacturer-codes` スキルで更新可能
 
 仕様は [echonet.jp の仕様総合ページ](https://echonet.jp/spec_g/)から辿れます。MRA データの更新は Claude Code スキル `/update-mra`（`.claude/skills/update-mra/SKILL.md`）で行えます: 最新版の発見 → ダウンロード → `echonet/spec/mra/` の差し替え → 動作確認 → コミット、までを対話的に実行します。
 
