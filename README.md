@@ -6,11 +6,12 @@ ECHONET Lite の情報を AI から利用可能にする、読み取り専用の
 
 ## 提供する MCP ツール
 
-すべて読み取り専用（`ReadOnlyHint: true`）です。3 系統のツール群があります:
+すべて読み取り専用（`ReadOnlyHint: true`）です。4 系統のツール群があります:
 
 - **仕様検索** — 埋め込み (`//go:embed`) MRA JSON をプロセス内で検索 (外部通信なし)
 - **機器通信** — LAN 上の ECHONET Lite 機器へ UDP で問い合わせ
 - **製品検索** — echonet.jp へ HTTP でリクエスト
+- **UI 表示** — 機器通信結果を MCP Apps 対応クライアントでダッシュボード表示
 
 ### 仕様検索（静的データ）
 
@@ -53,6 +54,14 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | ツール | 概要 |
 |---|---|
 | `search_certified_products` | [echonet.jp](https://echonet.jp/product/echonet-lite/) の認証登録製品を検索 |
+
+### UI 表示（MCP Apps）
+
+| ツール | 概要 |
+|---|---|
+| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/sep/1865)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示 |
+
+MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 
 ## アーキテクチャ
 
@@ -120,6 +129,25 @@ sequenceDiagram
     S-->>-AI: 製品名・メーカー・認証番号 等
 ```
 
+### UI 表示（MCP Apps）
+
+`render_battery_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。
+
+```mermaid
+sequenceDiagram
+    participant AI as AI (MCP Apps クライアント)
+    participant S as el-mcp-server
+    participant D as 蓄電池<br/>(同一 LAN, EOJ 027Dxx)
+
+    Note over AI,S: MCP プロトコル (stdio / HTTP)
+
+    AI->>+S: tools/call render_battery_ui (ip, eoj)
+    S->>+D: UDP ユニキャスト <ip>:3610<br/>Get (稼働状態・運転モード・蓄電残量・充放電電力)
+    D-->>-S: Get_Res (プロパティ値 EDT)
+    S-->>-AI: CallToolResult (JSON) + _meta.ui.resourceUri
+    Note over AI: resources/read ui://el-mcp-server/battery<br/>で HTML を取得しダッシュボード描画
+```
+
 ## ビルド
 
 ```bash
@@ -142,7 +170,7 @@ go build -o el-mcp-server .
 claude mcp add el-mcp-server -- /path/to/el-mcp-server
 ```
 
-登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」のように話しかけると各ツールが呼び出されます。
+登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」のように話しかけると各ツールが呼び出されます。
 
 ## データソース
 
