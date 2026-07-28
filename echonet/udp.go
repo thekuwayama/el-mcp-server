@@ -3,6 +3,7 @@ package echonet
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,37 +16,56 @@ func nextTID() uint16 {
 	return uint16(tidCounter.Add(1))
 }
 
+// udpMu serializes access to UDP port UDPPort. ECHONET Lite peers conventionally
+// send responses back to the fixed port UDPPort regardless of the request's
+// source port, so both unicast Send and multicast Discover must themselves bind
+// to UDPPort to receive them. Only one such binding can exist on the host at a
+// time, so callers share this lock instead of using an ephemeral source port.
+var udpMu sync.Mutex
+
 // Send sends a frame to the given IP address (unicast) and waits for a matching response.
 func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
-	addr := net.JoinHostPort(ip, fmt.Sprintf("%d", UDPPort))
-	conn, err := net.DialTimeout("udp", addr, timeout)
+	udpMu.Lock()
+	defer udpMu.Unlock()
+
+	raddr := &net.UDPAddr{IP: net.ParseIP(ip), Port: UDPPort}
+	if raddr.IP == nil {
+		return nil, fmt.Errorf("invalid IP address: %s", ip)
+	}
+
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: UDPPort})
 	if err != nil {
-		return nil, fmt.Errorf("dial udp %s: %w", addr, err)
+		return nil, fmt.Errorf("listen udp :%d: %w", UDPPort, err)
 	}
 	defer conn.Close()
 
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	deadline := time.Now().Add(timeout)
+	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, err
 	}
 
-	if _, err := conn.Write(frame.Encode()); err != nil {
+	if _, err := conn.WriteToUDP(frame.Encode(), raddr); err != nil {
 		return nil, fmt.Errorf("write udp: %w", err)
 	}
 
 	buf := make([]byte, 1500)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, fmt.Errorf("read udp: %w", err)
+	for {
+		n, src, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return nil, fmt.Errorf("read udp: %w", err)
+		}
+		if !src.IP.Equal(raddr.IP) {
+			continue
+		}
+		resp, err := Decode(buf[:n])
+		if err != nil {
+			continue
+		}
+		if resp.TID != frame.TID {
+			continue
+		}
+		return resp, nil
 	}
-
-	resp, err := Decode(buf[:n])
-	if err != nil {
-		return nil, err
-	}
-	if resp.TID != frame.TID {
-		return nil, fmt.Errorf("TID mismatch: got %d, want %d", resp.TID, frame.TID)
-	}
-	return resp, nil
 }
 
 // DiscoverResult holds the result of a device discovery.
@@ -57,10 +77,12 @@ type DiscoverResult struct {
 // Discover sends an instance list Get to the ECHONET Lite multicast address
 // and collects responses until the timeout expires.
 func Discover(timeoutSec int) ([]DiscoverResult, error) {
-	localAddr := &net.UDPAddr{Port: 0}
-	conn, err := net.ListenUDP("udp4", localAddr)
+	udpMu.Lock()
+	defer udpMu.Unlock()
+
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: UDPPort})
 	if err != nil {
-		return nil, fmt.Errorf("listen udp: %w", err)
+		return nil, fmt.Errorf("listen udp :%d: %w", UDPPort, err)
 	}
 	defer conn.Close()
 
