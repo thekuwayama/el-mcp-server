@@ -23,6 +23,17 @@ func registerNetworkTools(s *mcp.Server) {
 		Description: "指定したECHONET Lite機器のEPCプロパティ値をUDP Getで取得します。値はhex文字列で返ります。",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, getProperty)
+
+	destructive := true
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_property",
+		Description: "指定したECHONET Lite機器のEPCプロパティ値をUDP SetC(応答あり)で書き込みます。機器の実際の状態を変更する操作です。事前にget_propertyやget_epc_detailで書き込み可能なEPCとEDTの形式を確認してから呼び出してください。",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: &destructive,
+			IdempotentHint:  true,
+		},
+	}, setProperty)
 }
 
 type discoverDevicesParams struct {
@@ -109,4 +120,53 @@ func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyP
 		}
 	}
 	return jsonResult(result)
+}
+
+type setPropertyParams struct {
+	IP  string `json:"ip"  jsonschema:"機器のIPアドレス。例: 192.168.1.100"`
+	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進)。例: 0130 または 013001"`
+	EPC string `json:"epc" jsonschema:"書き込むプロパティコード(2桁16進)。例: B0(運転モード設定)"`
+	EDT string `json:"edt" jsonschema:"書き込む値(hex文字列、1バイトごとに区切っても可)。例: 41 または 4100(マルチバイト値)"`
+}
+
+type setPropertyResult struct {
+	IP     string `json:"ip"`
+	EOJ    string `json:"eoj"`
+	EPC    string `json:"epc"`
+	EDTHex string `json:"edt_hex"`
+	Status string `json:"status"`
+}
+
+func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyParams) (*mcp.CallToolResult, any, error) {
+	eoj, err := echonet.ParseEOJHex(params.EOJ)
+	if err != nil {
+		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
+	}
+
+	epcCode, err := parseHexByte(params.EPC)
+	if err != nil {
+		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
+	}
+
+	edt, err := parseHexBytes(params.EDT)
+	if err != nil {
+		return errorResult(fmt.Sprintf("EDTの形式が正しくありません: %s", params.EDT)), nil, nil
+	}
+
+	if err := echonet.SetProperty(params.IP, eoj, epcCode, edt, 5*time.Second); err != nil {
+		return errorResult(fmt.Sprintf("プロパティ書き込みエラー: %v", err)), nil, nil
+	}
+
+	hexParts := make([]string, len(edt))
+	for i, b := range edt {
+		hexParts[i] = fmt.Sprintf("%02X", b)
+	}
+
+	return jsonResult(setPropertyResult{
+		IP:     params.IP,
+		EOJ:    strings.ToUpper(params.EOJ),
+		EPC:    strings.ToUpper(params.EPC),
+		EDTHex: strings.Join(hexParts, " "),
+		Status: "success",
+	})
 }

@@ -163,6 +163,24 @@ func GetProperty(ip string, eoj uint32, epc byte, timeout time.Duration) ([]byte
 	return nil, fmt.Errorf("EPC %02X not found in response", epc)
 }
 
+// SetProperty writes a single EPC value to a device via unicast UDP SetC,
+// waiting for the device's Set_Res (success) or SetC_SNA (failure) response.
+func SetProperty(ip string, eoj uint32, epc byte, edt []byte, timeout time.Duration) error {
+	tid := nextTID()
+	req := NewSetCRequest(tid, eoj, epc, edt)
+	resp, err := Send(ip, req, timeout)
+	if err != nil {
+		return err
+	}
+	if resp.ESV == ESVSetCSNA {
+		return fmt.Errorf("device returned SetC_SNA (EPC %02X write rejected)", epc)
+	}
+	if resp.ESV != ESVSetRes {
+		return fmt.Errorf("unexpected ESV: %02X", resp.ESV)
+	}
+	return nil
+}
+
 // parseInstanceList decodes the EDT of EPC 0xD5/0xD6 to a slice of EOJ values.
 // Format: [count(1)] [EOJ(3)] × count
 func parseInstanceList(edt []byte) []uint32 {
