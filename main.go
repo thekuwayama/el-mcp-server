@@ -20,7 +20,9 @@ func main() {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "el-mcp-server",
 		Version: "0.1.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Capabilities: tools.Capabilities(),
+	})
 
 	tools.Register(server)
 

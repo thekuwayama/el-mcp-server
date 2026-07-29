@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -204,5 +205,13 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errorResult(fmt.Sprintf("JSON marshal エラー: %v", err)), nil, nil
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, v, nil
+
+	// structuredContent must marshal to a JSON object per the MCP spec; arrays
+	// and other non-object values are only safe to surface as text content.
+	structured := v
+	switch reflect.ValueOf(v).Kind() {
+	case reflect.Slice, reflect.Array:
+		structured = nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, structured, nil
 }

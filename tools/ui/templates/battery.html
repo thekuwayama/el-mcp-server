@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>蓄電池ダッシュボード</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: transparent;
+    color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eaeaea; }
+  }
+  .card {
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .title { font-size: 14px; opacity: 0.7; margin-bottom: 12px; }
+  .gauge {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(128,128,128,0.2);
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .gauge-fill {
+    height: 100%;
+    background: #2e7d32;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  .rows { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 13px; }
+  .rows dt { opacity: 0.7; }
+  .rows dd { margin: 0; font-weight: 600; text-align: right; }
+  .empty { opacity: 0.6; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title" id="heading">蓄電池 読み込み中…</div>
+  <div class="gauge"><div class="gauge-fill" id="gauge"></div></div>
+  <dl class="rows" id="rows">
+    <dt>状態</dt><dd id="v-status">-</dd>
+    <dt>運転モード</dt><dd id="v-mode">-</dd>
+    <dt>蓄電残量</dt><dd id="v-capacity">-</dd>
+    <dt>充放電電力</dt><dd id="v-power">-</dd>
+  </dl>
+  <div class="empty" id="empty" hidden>この機器からは表示可能な情報が取得できませんでした。</div>
+</div>
+<script>
+(function () {
+  var nextId = 1;
+  var pending = {};
+
+  window.addEventListener("message", function (event) {
+    var msg = event.data;
+    if (!msg || msg.jsonrpc !== "2.0") return;
+
+    if (msg.id !== undefined && pending[msg.id]) {
+      var cb = pending[msg.id];
+      delete pending[msg.id];
+      if (msg.error) cb.reject(msg.error);
+      else cb.resolve(msg.result);
+      return;
+    }
+
+    if (msg.method === "ui/notifications/tool-result") {
+      render(msg.params && msg.params.structuredContent);
+    }
+  });
+
+  function sendRequest(method, params) {
+    var id = nextId++;
+    return new Promise(function (resolve, reject) {
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
+    });
+  }
+
+  function render(state) {
+    if (!state) return;
+    document.getElementById("empty").hidden = true;
+
+    var heading = "蓄電池";
+    if (state.ip) heading += " (" + state.ip + ")";
+    document.getElementById("heading").textContent = heading;
+
+    document.getElementById("v-status").textContent = state.operating_status || "不明";
+    document.getElementById("v-mode").textContent = state.operation_mode || "不明";
+
+    if (typeof state.remaining_capacity_percent === "number") {
+      document.getElementById("v-capacity").textContent = state.remaining_capacity_percent + " %";
+      document.getElementById("gauge").style.width = state.remaining_capacity_percent + "%";
+    } else {
+      document.getElementById("v-capacity").textContent = "不明";
+    }
+
+    if (typeof state.charge_discharge_power_w === "number") {
+      var w = state.charge_discharge_power_w;
+      var label = w > 0 ? "充電中 " : w < 0 ? "放電中 " : "";
+      document.getElementById("v-power").textContent = label + Math.abs(w) + " W";
+    } else {
+      document.getElementById("v-power").textContent = "不明";
+    }
+  }
+
+  sendRequest("ui/initialize", {
+    appCapabilities: { availableDisplayModes: ["inline"] },
+    clientInfo: { name: "el-mcp-server-battery-ui", version: "0.1.0" },
+    protocolVersion: "2026-01-26"
+  }).catch(function () {
+    // Host may not support the handshake; the view still renders once a
+    // tool-result notification arrives (best-effort degradation).
+  });
+})();
+</script>
+</body>
+</html>
