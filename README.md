@@ -2,11 +2,11 @@
 
 [![Actions Status](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml/badge.svg)](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml)
 
-ECHONET Lite の情報を AI から利用可能にする、読み取り専用の MCP (Model Context Protocol) サーバーです。Go で実装しています。
+ECHONET Lite の情報を AI から利用可能にする MCP (Model Context Protocol) サーバーです。Go で実装しています。
 
 ## 提供する MCP ツール
 
-すべて読み取り専用（`ReadOnlyHint: true`）です。4 系統のツール群があります:
+4 系統のツール群があります。`set_property` を除くすべてのツールは読み取り専用（`ReadOnlyHint: true`）です:
 
 - **仕様検索** — 埋め込み (`//go:embed`) MRA JSON をプロセス内で検索 (外部通信なし)
 - **機器通信** — LAN 上の ECHONET Lite 機器へ UDP で問い合わせ
@@ -48,6 +48,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 |---|---|
 | `discover_devices` | マルチキャスト（224.0.23.0）で LAN 内の機器を探索 |
 | `get_property` | 指定機器の EPC プロパティ値を Get で取得。EPC `8A`（メーカーコード）は `manufacturer_name` フィールドも自動付与 |
+| `set_property` | 指定機器の EPC プロパティ値を SetC（応答あり）で書き込み。**機器の実際の状態を変更します**（`ReadOnlyHint: false` / `DestructiveHint: true`）。書き込み可否・EDT の形式は事前に `get_epc_detail` で確認してください |
 
 ### 製品検索（HTTP）
 
@@ -104,11 +105,18 @@ sequenceDiagram
     S->>+D: UDP ユニキャスト <ip>:3610<br/>Get (指定 EPC)
     D-->>-S: Get_Res (プロパティ値 EDT)
     S-->>-AI: プロパティ値 (hex)
+
+    AI->>+S: tools/call set_property (ip, eoj, epc, edt)
+    S->>+D: UDP ユニキャスト <ip>:3610<br/>SetC (指定 EPC, 書き込み値 EDT)
+    D-->>-S: Set_Res (成功) または SetC_SNA (失敗)
+    S-->>-AI: 書き込み結果
 ```
 
-`discover_devices` / `get_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。
+`discover_devices` / `get_property` / `set_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。
 
-同一ホスト上で ECHONET Lite エミュレータと el-mcp-server を併用する場合、両者が UDP ポート 3610 を同時に占有できないため `discover_devices` は使用できません。エミュレータの IP（`127.0.0.1`）と EOJ があらかじめわかっている場合は、`discover_devices` を経由せず直接 `get_property` を呼び出してください。
+同一ホスト上で ECHONET Lite エミュレータと el-mcp-server を併用する場合、両者が UDP ポート 3610 を同時に占有できないため `discover_devices` は使用できません。エミュレータの IP（`127.0.0.1`）と EOJ があらかじめわかっている場合は、`discover_devices` を経由せず直接 `get_property` / `set_property` を呼び出してください。
+
+`set_property` は SetC のみに対応しています（応答を待たずに成否が確認できない SetI は未対応）。EPC が書き込み不可、または EDT の形式が不正な場合、機器は `SetC_SNA` を返し、ツールはエラーとして報告します。
 
 ### 製品検索（HTTP）
 
@@ -170,7 +178,7 @@ go build -o el-mcp-server .
 claude mcp add el-mcp-server -- /path/to/el-mcp-server
 ```
 
-登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」のように話しかけると各ツールが呼び出されます。
+登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
 
 ## データソース
 
@@ -216,5 +224,6 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 ## 制限事項
 
 - 認証機構を実装していません。[MCP の Authorization 仕様](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)では、認証をサポートする場合、HTTP ベーストランスポートの実装は OAuth 2.1 ベースの同仕様に準拠すべき（SHOULD）とされていますが、本サーバーは未対応です。HTTP モードは信頼できるネットワーク内でのみ使用してください
-- 読み取り専用です。機器への書き込み（SetC/SetI）は実装していません
+- 機器への書き込みは `set_property`（SetC）のみ対応しています。SetI（応答なしの書き込み）は未実装です
+- `set_property` は機器の実際の状態（運転モード・温度設定など）を変更します。呼び出し前に対象 EPC が書き込み可能か、EDT が正しい形式かを `get_epc_detail` で確認してください
 - `search_certified_products` の検索パラメータは echonet.jp のフォーム仕様に依存するため、絞り込みが効かない場合があります

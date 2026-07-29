@@ -9,11 +9,14 @@ const (
 	EHD1 = 0x10
 	EHD2 = 0x81
 
-	ESVGet    = 0x62
-	ESVGetRes = 0x72
-	ESVGetSNA = 0x52
-	ESVInf    = 0x73
-	ESVInfReq = 0x63
+	ESVSetC    = 0x61
+	ESVSetRes  = 0x71
+	ESVSetCSNA = 0x51
+	ESVGet     = 0x62
+	ESVGetRes  = 0x72
+	ESVGetSNA  = 0x52
+	ESVInf     = 0x73
+	ESVInfReq  = 0x63
 
 	// ControllerEOJ is used as the source object in requests.
 	ControllerEOJ = uint32(0x05FF01)
@@ -102,6 +105,17 @@ func NewGetRequest(tid uint16, deoj uint32, epcs ...byte) *Frame {
 		DEOJ:  deoj,
 		ESV:   ESVGet,
 		Props: props,
+	}
+}
+
+// NewSetCRequest builds a SetC (write-with-response) request frame for a single EPC.
+func NewSetCRequest(tid uint16, deoj uint32, epc byte, edt []byte) *Frame {
+	return &Frame{
+		TID:   tid,
+		SEOJ:  ControllerEOJ,
+		DEOJ:  deoj,
+		ESV:   ESVSetC,
+		Props: []Property{{EPC: epc, EDT: edt}},
 	}
 }
 

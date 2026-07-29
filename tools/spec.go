@@ -162,6 +162,27 @@ func parseHexByte(s string) (byte, error) {
 	return v, err
 }
 
+// parseHexBytes decodes a whitespace-separated or contiguous hex string (e.g.
+// "30" or "FF 01") into a byte slice.
+func parseHexBytes(s string) ([]byte, error) {
+	hexStr := strings.ReplaceAll(strings.TrimSpace(s), " ", "")
+	if hexStr == "" {
+		return nil, fmt.Errorf("empty hex string")
+	}
+	if len(hexStr)%2 != 0 {
+		return nil, fmt.Errorf("odd-length hex string: %s", s)
+	}
+	edt := make([]byte, len(hexStr)/2)
+	for i := range edt {
+		b, err := parseHexByte(hexStr[i*2 : i*2+2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex byte in %q: %w", s, err)
+		}
+		edt[i] = b
+	}
+	return edt, nil
+}
+
 func toEPCSummaries(epcs []spec.EPCDef) []epcSummary {
 	out := make([]epcSummary, len(epcs))
 	for i, e := range epcs {
