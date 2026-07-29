@@ -237,13 +237,55 @@
     }
   }
 
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params }, "*");
+  }
+
+  // Flexible-height views must report their content size; otherwise the host
+  // has no dimensions to apply and the iframe stays collapsed.
+  function startSizeReporting() {
+    var lastH = -1, lastW = -1;
+    function report() {
+      var el = document.documentElement;
+      var h = Math.ceil(el.scrollHeight);
+      var w = Math.ceil(el.scrollWidth);
+      if (h === lastH && w === lastW) return;
+      lastH = h; lastW = w;
+      sendNotification("ui/notifications/size-changed", { width: w, height: h });
+    }
+    report();
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(report).observe(document.body);
+    } else {
+      setInterval(report, 500);
+    }
+  }
+
+  function applyContainerDimensions(hostContext) {
+    var d = hostContext && hostContext.containerDimensions;
+    if (!d) return;
+    var el = document.documentElement;
+    if ("height" in d) el.style.height = "100vh";
+    else if (d.maxHeight) el.style.maxHeight = d.maxHeight + "px";
+    if ("width" in d) el.style.width = "100vw";
+    else if (d.maxWidth) el.style.maxWidth = d.maxWidth + "px";
+  }
+
   sendRequest("ui/initialize", {
     appCapabilities: { availableDisplayModes: ["inline"] },
     clientInfo: { name: "el-mcp-server-battery-ui", version: "0.1.0" },
     protocolVersion: "2026-01-26"
+  }).then(function (result) {
+    applyContainerDimensions(result && result.hostContext);
+    // Required by SEP-1865: the host MUST NOT send any request or
+    // notification (including ui/notifications/tool-result) to the view
+    // before it receives this notification.
+    sendNotification("ui/notifications/initialized", {});
+    startSizeReporting();
   }).catch(function () {
-    // Host may not support the handshake; the view still renders once a
-    // tool-result notification arrives (best-effort degradation).
+    // Host may not support the handshake; still report size so that a
+    // non-conforming host at least gets usable dimensions.
+    startSizeReporting();
   });
 })();
 </script>
