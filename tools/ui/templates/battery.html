@@ -142,10 +142,25 @@
     }
   });
 
-  function sendRequest(method, params) {
+  // timeoutMs is optional. Without it a silent host leaves the promise pending
+  // forever, which also means the caller's .catch() fallback never runs.
+  function sendRequest(method, params, timeoutMs) {
     var id = nextId++;
     return new Promise(function (resolve, reject) {
-      pending[id] = { resolve: resolve, reject: reject };
+      var timer = null;
+      function settle(fn) {
+        return function (v) {
+          if (timer) clearTimeout(timer);
+          fn(v);
+        };
+      }
+      pending[id] = { resolve: settle(resolve), reject: settle(reject) };
+      if (timeoutMs) {
+        timer = setTimeout(function () {
+          delete pending[id];
+          reject(new Error(method + " timed out after " + timeoutMs + "ms"));
+        }, timeoutMs);
+      }
       window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
     });
   }
@@ -241,17 +256,33 @@
     window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params }, "*");
   }
 
-  // Flexible-height views must report their content size; otherwise the host
-  // has no dimensions to apply and the iframe stays collapsed.
+  // Dimensions the host pinned itself. Reporting these back is pointless, and
+  // measuring them is actively wrong: applyContainerDimensions sets the fixed
+  // axis to 100vw/100vh, so scrollWidth/scrollHeight would return the viewport
+  // size rather than the content size.
+  var hostFixedWidth = false;
+  var hostFixedHeight = false;
+  var sizeReportingStarted = false;
+
+  // Flexible views must report their content size; otherwise the host has no
+  // dimensions to apply and the iframe stays collapsed.
   function startSizeReporting() {
+    if (sizeReportingStarted) return;
+    sizeReportingStarted = true;
+    if (hostFixedWidth && hostFixedHeight) return;
+
     var lastH = -1, lastW = -1;
     function report() {
       var el = document.documentElement;
-      var h = Math.ceil(el.scrollHeight);
-      var w = Math.ceil(el.scrollWidth);
+      var h = hostFixedHeight ? null : Math.ceil(el.scrollHeight);
+      var w = hostFixedWidth ? null : Math.ceil(el.scrollWidth);
       if (h === lastH && w === lastW) return;
       lastH = h; lastW = w;
-      sendNotification("ui/notifications/size-changed", { width: w, height: h });
+      // Omitted axes are left untouched by the host.
+      var params = {};
+      if (w !== null) params.width = w;
+      if (h !== null) params.height = h;
+      sendNotification("ui/notifications/size-changed", params);
     }
     report();
     if (typeof ResizeObserver === "function") {
@@ -265,17 +296,19 @@
     var d = hostContext && hostContext.containerDimensions;
     if (!d) return;
     var el = document.documentElement;
-    if ("height" in d) el.style.height = "100vh";
+    if ("height" in d) { el.style.height = "100vh"; hostFixedHeight = true; }
     else if (d.maxHeight) el.style.maxHeight = d.maxHeight + "px";
-    if ("width" in d) el.style.width = "100vw";
+    if ("width" in d) { el.style.width = "100vw"; hostFixedWidth = true; }
     else if (d.maxWidth) el.style.maxWidth = d.maxWidth + "px";
   }
+
+  var INITIALIZE_TIMEOUT_MS = 2000;
 
   sendRequest("ui/initialize", {
     appCapabilities: { availableDisplayModes: ["inline"] },
     clientInfo: { name: "el-mcp-server-battery-ui", version: "0.1.0" },
     protocolVersion: "2026-01-26"
-  }).then(function (result) {
+  }, INITIALIZE_TIMEOUT_MS).then(function (result) {
     applyContainerDimensions(result && result.hostContext);
     // Required by SEP-1865: the host MUST NOT send any request or
     // notification (including ui/notifications/tool-result) to the view
@@ -283,8 +316,9 @@
     sendNotification("ui/notifications/initialized", {});
     startSizeReporting();
   }).catch(function () {
-    // Host may not support the handshake; still report size so that a
-    // non-conforming host at least gets usable dimensions.
+    // Reached when the host rejects the handshake or stays silent past the
+    // timeout. Report size anyway so a non-conforming host still gets usable
+    // dimensions instead of a collapsed iframe.
     startSizeReporting();
   });
 })();
