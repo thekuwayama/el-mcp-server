@@ -60,7 +60,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 
 | ツール | 概要 |
 |---|---|
-| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/sep/1865)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示 |
+| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/sep/1865)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
 
 MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 
@@ -154,7 +154,18 @@ sequenceDiagram
     D-->>-S: Get_Res (プロパティ値 EDT)
     S-->>-AI: CallToolResult (JSON) + _meta.ui.resourceUri
     Note over AI: resources/read ui://el-mcp-server/battery<br/>で HTML を取得しダッシュボード描画
+
+    Note over AI: ユーザーがダッシュボード上で<br/>稼働状態トグル / 運転モードを操作
+    AI->>+S: tools/call set_property (ip, eoj, epc, edt)
+    S->>+D: UDP ユニキャスト <ip>:3610<br/>SetC (EPC 80: 稼働状態 または EPC DA: 運転モード)
+    D-->>-S: Set_Res (成功) または SetC_SNA (失敗)
+    S-->>-AI: 書き込み結果
+    AI->>+S: tools/call render_battery_ui (ip, eoj)
+    Note over S,D: 最新状態を再取得
+    S-->>-AI: CallToolResult (JSON)<br/>ダッシュボードを最新状態で再描画
 ```
+
+ダッシュボードの HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。運転モードの選択肢はサーバー側 (`tools/ui/battery_decode.go`) と手動で同期しています。
 
 ## ビルド
 
