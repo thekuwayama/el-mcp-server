@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/thekuwayama/el-mcp-server/echonet"
 	"github.com/thekuwayama/el-mcp-server/echonet/spec"
 )
 
@@ -208,6 +209,25 @@ func toEPCDetail(e spec.EPCDef) epcDetail {
 		AccessRules: e.AccessRules,
 		Description: e.Description,
 	}
+}
+
+// parseEOJParam parses eojHex, returning a ready-to-return error
+// CallToolResult when it is malformed.
+func parseEOJParam(eojHex string) (uint32, *mcp.CallToolResult) {
+	eoj, err := echonet.ParseEOJHex(eojHex)
+	if err != nil {
+		return 0, errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", eojHex))
+	}
+	return eoj, nil
+}
+
+// hexJoin renders edt as a space-separated uppercase hex string, e.g. "30 01".
+func hexJoin(edt []byte) string {
+	parts := make([]string, len(edt))
+	for i, b := range edt {
+		parts[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(parts, " ")
 }
 
 func textResult(msg string) *mcp.CallToolResult {

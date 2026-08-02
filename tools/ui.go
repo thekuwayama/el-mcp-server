@@ -49,9 +49,9 @@ func dashboardResourceHandler(html string) func(context.Context, *mcp.ReadResour
 // check fails. deviceDesc is embedded verbatim in the class-mismatch
 // message, e.g. "蓄電池(EOJ 027Dxx)".
 func parseAndGuardEOJ(eojHex, toolName, deviceDesc string, groupCode, classCode byte) (uint32, *mcp.CallToolResult) {
-	eoj, err := echonet.ParseEOJHex(eojHex)
-	if err != nil {
-		return 0, errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", eojHex))
+	eoj, errRes := parseEOJParam(eojHex)
+	if errRes != nil {
+		return 0, errRes
 	}
 	if byte(eoj>>16) != groupCode || byte(eoj>>8) != classCode {
 		return 0, errorResult(fmt.Sprintf("%s は%s専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", toolName, deviceDesc, eojHex))
