@@ -61,6 +61,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | ツール | 概要 |
 |---|---|
 | `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/sep/1865)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
+| `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/solar` リソースをダッシュボード UI として表示。仕様上ほとんどのプロパティが読み取り専用のため、`render_battery_ui` と異なり操作系のコントロールは持たない読み取り専用ダッシュボード |
 
 MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 
@@ -139,7 +140,7 @@ sequenceDiagram
 
 ### UI 表示（MCP Apps）
 
-`render_battery_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。
+`render_battery_ui` / `render_solar_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。返す JSON（`structuredContent`）は両ツールで命名規則（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）を揃えており、対応する HTML（`tools/ui/templates/battery.html` / `solar.html`）も見出し→ゲージ→プロパティ一覧という同じ構造を共有しています。
 
 ```mermaid
 sequenceDiagram
@@ -167,6 +168,8 @@ sequenceDiagram
 
 ダッシュボードの HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。運転モードの選択肢はサーバー側 (`tools/ui/battery_decode.go`) と手動で同期しています。
 
+`render_solar_ui` のダッシュボード(`tools/ui/templates/solar.html`)も上記と同じ postMessage ブリッジ・`ui/initialize` ハンドシェイク・サイズ報告ロジックを使用しますが、住宅用太陽光発電クラスは大半のプロパティが読み取り専用のため `set_property` は呼び出さず、`tools/call render_solar_ui` の結果を表示するだけの読み取り専用ダッシュボードです。積算発電/売電電力量から算出した自家消費率(`self_consumption_percent`)を、蓄電残量ゲージと同じ見た目のゲージで表示します。
+
 ## ビルド
 
 ```bash
@@ -189,7 +192,7 @@ go build -o el-mcp-server .
 claude mcp add el-mcp-server -- /path/to/el-mcp-server
 ```
 
-登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
+登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
 
 ## データソース
 
