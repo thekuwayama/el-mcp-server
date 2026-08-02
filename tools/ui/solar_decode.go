@@ -74,3 +74,14 @@ func DecodeCumulativeEnergyKWh(edt []byte) (float64, bool) {
 	}
 	return float64(raw) / 1000, true
 }
+
+// SelfConsumptionPercent derives the self-consumption rate (0-100) from
+// cumulative generated and sold energy (both kWh, as returned by
+// DecodeCumulativeEnergyKWh). It drives the dashboard gauge the same way
+// DecodePercent drives the battery dashboard's remaining-capacity gauge.
+func SelfConsumptionPercent(generatedKWh, soldKWh float64) (int, bool) {
+	if generatedKWh <= 0 || soldKWh < 0 || soldKWh > generatedKWh {
+		return 0, false
+	}
+	return int((generatedKWh - soldKWh) / generatedKWh * 100), true
+}

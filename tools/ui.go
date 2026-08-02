@@ -159,6 +159,7 @@ type solarUIState struct {
 	InstantaneousPowerW         *uint16  `json:"instantaneous_power_w,omitempty"`
 	CumulativeGeneratedKWh      *float64 `json:"cumulative_generated_kwh,omitempty"`
 	CumulativeSoldKWh           *float64 `json:"cumulative_sold_kwh,omitempty"`
+	SelfConsumptionPercent      *int     `json:"self_consumption_percent,omitempty"`
 	SystemInterconnectionStatus string   `json:"system_interconnection_status,omitempty"`
 	OutputPowerRestraintStatus  string   `json:"output_power_restraint_status,omitempty"`
 }
@@ -200,6 +201,11 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeElectricEnergySoldEPC, timeout); err == nil {
 		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
 			state.CumulativeSoldKWh = &v
+		}
+	}
+	if state.CumulativeGeneratedKWh != nil && state.CumulativeSoldKWh != nil {
+		if v, ok := ui.SelfConsumptionPercent(*state.CumulativeGeneratedKWh, *state.CumulativeSoldKWh); ok {
+			state.SelfConsumptionPercent = &v
 		}
 	}
 	if edt, err := echonet.GetProperty(params.IP, eoj, ui.SystemInterconnectionStatusEPC, timeout); err == nil {

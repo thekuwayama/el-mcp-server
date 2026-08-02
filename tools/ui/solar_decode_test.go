@@ -62,3 +62,15 @@ func TestDecodeCumulativeEnergyKWh(t *testing.T) {
 		t.Error("DecodeCumulativeEnergyKWh with 3 bytes should fail")
 	}
 }
+
+func TestSelfConsumptionPercent(t *testing.T) {
+	if v, ok := SelfConsumptionPercent(141.303, 13.298); !ok || v != 90 {
+		t.Errorf("SelfConsumptionPercent(141.303, 13.298) = (%d, %v), want (90, true)", v, ok)
+	}
+	if _, ok := SelfConsumptionPercent(0, 0); ok {
+		t.Error("SelfConsumptionPercent with 0 generated should fail")
+	}
+	if _, ok := SelfConsumptionPercent(10, 20); ok {
+		t.Error("SelfConsumptionPercent with sold > generated should fail")
+	}
+}

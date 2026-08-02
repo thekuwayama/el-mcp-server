@@ -21,13 +21,19 @@
     padding: 16px;
   }
   .title { font-size: 14px; opacity: 0.7; margin-bottom: 12px; }
-  .power {
-    font-size: 32px;
-    font-weight: 700;
-    color: #ef6c00;
-    margin-bottom: 12px;
+  .gauge {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(128,128,128,0.2);
+    overflow: hidden;
+    margin: 8px 0;
   }
-  .power .unit { font-size: 16px; font-weight: 600; opacity: 0.7; margin-left: 4px; }
+  .gauge-fill {
+    height: 100%;
+    background: #ef6c00;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
   .rows { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 13px; align-items: center; }
   .rows dt { opacity: 0.7; }
   .rows dd { margin: 0; font-weight: 600; text-align: right; }
@@ -51,9 +57,11 @@
 <body>
 <div class="card">
   <div class="title" id="heading">太陽光発電 読み込み中…</div>
-  <div class="power"><span id="v-power">-</span><span class="unit">W</span></div>
+  <div class="gauge"><div class="gauge-fill" id="gauge"></div></div>
   <dl class="rows" id="rows">
     <dt>稼働状態</dt><dd><span class="badge" id="badge-status">-</span></dd>
+    <dt>瞬時発電電力</dt><dd id="v-power">-</dd>
+    <dt>自家消費率</dt><dd id="v-selfconsumption">-</dd>
     <dt>積算発電電力量</dt><dd id="v-generated">-</dd>
     <dt>積算売電電力量</dt><dd id="v-sold">-</dd>
     <dt>系統連系状態</dt><dd id="v-interconnection">-</dd>
@@ -120,7 +128,15 @@
     badge.dataset.on = String(isOn);
 
     document.getElementById("v-power").textContent =
-      typeof state.instantaneous_power_w === "number" ? state.instantaneous_power_w : "-";
+      typeof state.instantaneous_power_w === "number" ? state.instantaneous_power_w + " W" : "不明";
+
+    if (typeof state.self_consumption_percent === "number") {
+      document.getElementById("v-selfconsumption").textContent = state.self_consumption_percent + " %";
+      document.getElementById("gauge").style.width = state.self_consumption_percent + "%";
+    } else {
+      document.getElementById("v-selfconsumption").textContent = "不明";
+      document.getElementById("gauge").style.width = "0%";
+    }
 
     document.getElementById("v-generated").textContent =
       typeof state.cumulative_generated_kwh === "number" ? state.cumulative_generated_kwh + " kWh" : "不明";
