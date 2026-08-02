@@ -28,13 +28,73 @@ const v2hDashboardURI = "ui://el-mcp-server/v2h"
 // (SEP-1865) for ui:// resources.
 const MCPAppsUIMimeType = "text/html;profile=mcp-app"
 
+// dashboardResourceHandler returns an mcp.AddResource handler that serves the
+// given pre-rendered dashboard HTML for any ui:// resource read request.
+func dashboardResourceHandler(html string) func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      req.Params.URI,
+					MIMEType: MCPAppsUIMimeType,
+					Text:     html,
+				},
+			},
+		}, nil
+	}
+}
+
+// parseAndGuardEOJ parses eojHex and verifies it belongs to (groupCode,
+// classCode), returning a ready-to-return error CallToolResult when either
+// check fails. deviceDesc is embedded verbatim in the class-mismatch
+// message, e.g. "蓄電池(EOJ 027Dxx)".
+func parseAndGuardEOJ(eojHex, toolName, deviceDesc string, groupCode, classCode byte) (uint32, *mcp.CallToolResult) {
+	eoj, err := echonet.ParseEOJHex(eojHex)
+	if err != nil {
+		return 0, errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", eojHex))
+	}
+	if byte(eoj>>16) != groupCode || byte(eoj>>8) != classCode {
+		return 0, errorResult(fmt.Sprintf("%s は%s専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", toolName, deviceDesc, eojHex))
+	}
+	return eoj, nil
+}
+
+// getString fetches epc and decodes it with decode, returning "" if the
+// property could not be fetched or decoded.
+func getString(ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (string, bool)) string {
+	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+	if err != nil {
+		return ""
+	}
+	v, ok := decode(edt)
+	if !ok {
+		return ""
+	}
+	return v
+}
+
+// getPtr fetches epc and decodes it with decode, returning nil if the
+// property could not be fetched or decoded. Used for numeric fields, where a
+// zero value would be indistinguishable from "not reported by the device".
+func getPtr[T any](ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (T, bool)) *T {
+	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+	if err != nil {
+		return nil
+	}
+	v, ok := decode(edt)
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
 func registerUITools(s *mcp.Server) {
 	s.AddResource(&mcp.Resource{
 		URI:      batteryDashboardURI,
 		Name:     "battery_dashboard",
 		Title:    "蓄電池ダッシュボード",
 		MIMEType: MCPAppsUIMimeType,
-	}, batteryDashboardResource)
+	}, dashboardResourceHandler(batteryDashboardHTML))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_battery_ui",
@@ -52,7 +112,7 @@ func registerUITools(s *mcp.Server) {
 		Name:     "solar_dashboard",
 		Title:    "太陽光発電ダッシュボード",
 		MIMEType: MCPAppsUIMimeType,
-	}, solarDashboardResource)
+	}, dashboardResourceHandler(solarDashboardHTML))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_solar_ui",
@@ -70,7 +130,7 @@ func registerUITools(s *mcp.Server) {
 		Name:     "v2h_dashboard",
 		Title:    "V2Hダッシュボード",
 		MIMEType: MCPAppsUIMimeType,
-	}, v2hDashboardResource)
+	}, dashboardResourceHandler(v2hDashboardHTML))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_v2h_ui",
@@ -82,18 +142,6 @@ func registerUITools(s *mcp.Server) {
 			},
 		},
 	}, renderV2HUI)
-}
-
-func batteryDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	return &mcp.ReadResourceResult{
-		Contents: []*mcp.ResourceContents{
-			{
-				URI:      req.Params.URI,
-				MIMEType: MCPAppsUIMimeType,
-				Text:     batteryDashboardHTML,
-			},
-		},
-	}, nil
 }
 
 type renderBatteryUIParams struct {
@@ -111,43 +159,20 @@ type batteryUIState struct {
 }
 
 func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBatteryUIParams) (*mcp.CallToolResult, any, error) {
-	eoj, err := echonet.ParseEOJHex(params.EOJ)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
-	}
-
-	groupCode := byte(eoj >> 16)
-	classCode := byte(eoj >> 8)
-	if groupCode != 0x02 || classCode != 0x7D {
-		return errorResult(fmt.Sprintf("render_battery_ui は蓄電池(EOJ 027Dxx)専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", params.EOJ)), nil, nil
-	}
-
-	state := batteryUIState{
-		IP:  params.IP,
-		EOJ: fmt.Sprintf("%06X", eoj),
+	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_battery_ui", "蓄電池(EOJ 027Dxx)", 0x02, 0x7D)
+	if errRes != nil {
+		return errRes, nil, nil
 	}
 
 	const timeout = 5 * time.Second
 
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperatingStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeOperatingStatus(edt); ok {
-			state.OperatingStatus = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperationModeEPC, timeout); err == nil {
-		if v, ok := ui.DecodeOperationMode(edt); ok {
-			state.OperationMode = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout); err == nil {
-		if v, ok := ui.DecodePercent(edt); ok {
-			state.RemainingCapacityPercent = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout); err == nil {
-		if v, ok := ui.DecodeSignedPowerW(edt); ok {
-			state.ChargeDischargePowerW = &v
-		}
+	state := batteryUIState{
+		IP:                       params.IP,
+		EOJ:                      fmt.Sprintf("%06X", eoj),
+		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeOperationMode),
+		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
+		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil && state.ChargeDischargePowerW == nil {
@@ -155,18 +180,6 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 	}
 
 	return jsonResult(state)
-}
-
-func solarDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	return &mcp.ReadResourceResult{
-		Contents: []*mcp.ResourceContents{
-			{
-				URI:      req.Params.URI,
-				MIMEType: MCPAppsUIMimeType,
-				Text:     solarDashboardHTML,
-			},
-		},
-	}, nil
 }
 
 type renderSolarUIParams struct {
@@ -187,57 +200,26 @@ type solarUIState struct {
 }
 
 func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSolarUIParams) (*mcp.CallToolResult, any, error) {
-	eoj, err := echonet.ParseEOJHex(params.EOJ)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
-	}
-
-	groupCode := byte(eoj >> 16)
-	classCode := byte(eoj >> 8)
-	if groupCode != 0x02 || classCode != 0x79 {
-		return errorResult(fmt.Sprintf("render_solar_ui は住宅用太陽光発電(EOJ 0279xx)専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", params.EOJ)), nil, nil
-	}
-
-	state := solarUIState{
-		IP:  params.IP,
-		EOJ: fmt.Sprintf("%06X", eoj),
+	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_solar_ui", "住宅用太陽光発電(EOJ 0279xx)", 0x02, 0x79)
+	if errRes != nil {
+		return errRes, nil, nil
 	}
 
 	const timeout = 5 * time.Second
 
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperatingStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeOperatingStatus(edt); ok {
-			state.OperatingStatus = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.InstantaneousElectricPowerGenerationEPC, timeout); err == nil {
-		if v, ok := ui.DecodeUnsignedPowerW(edt); ok {
-			state.InstantaneousPowerW = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeElectricEnergyOfGenerationEPC, timeout); err == nil {
-		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
-			state.CumulativeGeneratedKWh = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeElectricEnergySoldEPC, timeout); err == nil {
-		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
-			state.CumulativeSoldKWh = &v
-		}
+	state := solarUIState{
+		IP:                          params.IP,
+		EOJ:                         fmt.Sprintf("%06X", eoj),
+		OperatingStatus:             getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		InstantaneousPowerW:         getPtr(params.IP, eoj, ui.InstantaneousElectricPowerGenerationEPC, timeout, ui.DecodeUnsignedPowerW),
+		CumulativeGeneratedKWh:      getPtr(params.IP, eoj, ui.CumulativeElectricEnergyOfGenerationEPC, timeout, ui.DecodeCumulativeEnergyKWh),
+		CumulativeSoldKWh:           getPtr(params.IP, eoj, ui.CumulativeElectricEnergySoldEPC, timeout, ui.DecodeCumulativeEnergyKWh),
+		SystemInterconnectionStatus: getString(params.IP, eoj, ui.SystemInterconnectionStatusEPC, timeout, ui.DecodeSystemInterconnectionStatus),
+		OutputPowerRestraintStatus:  getString(params.IP, eoj, ui.OutputPowerRestraintStatusEPC, timeout, ui.DecodeOutputPowerRestraintStatus),
 	}
 	if state.CumulativeGeneratedKWh != nil && state.CumulativeSoldKWh != nil {
 		if v, ok := ui.SelfConsumptionPercent(*state.CumulativeGeneratedKWh, *state.CumulativeSoldKWh); ok {
 			state.SelfConsumptionPercent = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.SystemInterconnectionStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeSystemInterconnectionStatus(edt); ok {
-			state.SystemInterconnectionStatus = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OutputPowerRestraintStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeOutputPowerRestraintStatus(edt); ok {
-			state.OutputPowerRestraintStatus = v
 		}
 	}
 
@@ -247,18 +229,6 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 	}
 
 	return jsonResult(state)
-}
-
-func v2hDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	return &mcp.ReadResourceResult{
-		Contents: []*mcp.ResourceContents{
-			{
-				URI:      req.Params.URI,
-				MIMEType: MCPAppsUIMimeType,
-				Text:     v2hDashboardHTML,
-			},
-		},
-	}, nil
 }
 
 type renderV2HUIParams struct {
@@ -279,58 +249,23 @@ type v2hUIState struct {
 }
 
 func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIParams) (*mcp.CallToolResult, any, error) {
-	eoj, err := echonet.ParseEOJHex(params.EOJ)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
-	}
-
-	groupCode := byte(eoj >> 16)
-	classCode := byte(eoj >> 8)
-	if groupCode != 0x02 || classCode != 0x7E {
-		return errorResult(fmt.Sprintf("render_v2h_ui はV2H(電気自動車充放電器、EOJ 027Exx)専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", params.EOJ)), nil, nil
-	}
-
-	state := v2hUIState{
-		IP:  params.IP,
-		EOJ: fmt.Sprintf("%06X", eoj),
+	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_v2h_ui", "V2H(電気自動車充放電器、EOJ 027Exx)", 0x02, 0x7E)
+	if errRes != nil {
+		return errRes, nil, nil
 	}
 
 	const timeout = 5 * time.Second
 
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperatingStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeOperatingStatus(edt); ok {
-			state.OperatingStatus = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperationModeEPC, timeout); err == nil {
-		if v, ok := ui.DecodeV2HOperationMode(edt); ok {
-			state.OperationMode = v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout); err == nil {
-		if v, ok := ui.DecodePercent(edt); ok {
-			state.RemainingCapacityPercent = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout); err == nil {
-		if v, ok := ui.DecodeSignedPowerW(edt); ok {
-			state.ChargeDischargePowerW = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeChargingEnergyEPC, timeout); err == nil {
-		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
-			state.CumulativeChargingKWh = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeDischargingEnergyEPC, timeout); err == nil {
-		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
-			state.CumulativeDischargingKWh = &v
-		}
-	}
-	if edt, err := echonet.GetProperty(params.IP, eoj, ui.VehicleConnectionStatusEPC, timeout); err == nil {
-		if v, ok := ui.DecodeVehicleConnectionStatus(edt); ok {
-			state.VehicleConnectionStatus = v
-		}
+	state := v2hUIState{
+		IP:                       params.IP,
+		EOJ:                      fmt.Sprintf("%06X", eoj),
+		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeV2HOperationMode),
+		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
+		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
+		CumulativeChargingKWh:    getPtr(params.IP, eoj, ui.CumulativeChargingEnergyEPC, timeout, ui.DecodeCumulativeEnergyKWh),
+		CumulativeDischargingKWh: getPtr(params.IP, eoj, ui.CumulativeDischargingEnergyEPC, timeout, ui.DecodeCumulativeEnergyKWh),
+		VehicleConnectionStatus:  getString(params.IP, eoj, ui.VehicleConnectionStatusEPC, timeout, ui.DecodeVehicleConnectionStatus),
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil &&
