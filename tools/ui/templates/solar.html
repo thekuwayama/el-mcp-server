@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>太陽光発電ダッシュボード</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: transparent;
+    color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eaeaea; }
+  }
+  .card {
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .title { font-size: 14px; opacity: 0.7; margin-bottom: 12px; }
+  .gauge {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(128,128,128,0.2);
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .gauge-fill {
+    height: 100%;
+    background: #ef6c00;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  .rows { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 13px; align-items: center; }
+  .rows dt { opacity: 0.7; }
+  .rows dd { margin: 0; font-weight: 600; text-align: right; }
+  .empty { opacity: 0.6; font-size: 13px; }
+
+  .badge {
+    display: inline-block;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(128,128,128,0.4);
+    background: rgba(128,128,128,0.12);
+  }
+  .badge[data-on="true"] {
+    border-color: #ef6c00;
+    background: rgba(239,108,0,0.15);
+    color: #ef6c00;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title" id="heading">太陽光発電 読み込み中…</div>
+  <div class="gauge"><div class="gauge-fill" id="gauge"></div></div>
+  <dl class="rows" id="rows">
+    <dt>稼働状態</dt><dd><span class="badge" id="badge-status">-</span></dd>
+    <dt>瞬時発電電力</dt><dd id="v-power">-</dd>
+    <dt>自家消費率</dt><dd id="v-selfconsumption">-</dd>
+    <dt>積算発電電力量</dt><dd id="v-generated">-</dd>
+    <dt>積算売電電力量</dt><dd id="v-sold">-</dd>
+    <dt>系統連系状態</dt><dd id="v-interconnection">-</dd>
+    <dt>出力抑制状態</dt><dd id="v-restraint">-</dd>
+  </dl>
+  <div class="empty" id="empty" hidden>この機器からは表示可能な情報が取得できませんでした。</div>
+</div>
+<script>
+(function () {
+  var nextId = 1;
+  var pending = {};
+
+  window.addEventListener("message", function (event) {
+    var msg = event.data;
+    if (!msg || msg.jsonrpc !== "2.0") return;
+
+    if (msg.id !== undefined && pending[msg.id]) {
+      var cb = pending[msg.id];
+      delete pending[msg.id];
+      if (msg.error) cb.reject(msg.error);
+      else cb.resolve(msg.result);
+      return;
+    }
+
+    if (msg.method === "ui/notifications/tool-result") {
+      render(msg.params && msg.params.structuredContent);
+    }
+  });
+
+  // timeoutMs is optional. Without it a silent host leaves the promise pending
+  // forever, which also means the caller's .catch() fallback never runs.
+  function sendRequest(method, params, timeoutMs) {
+    var id = nextId++;
+    return new Promise(function (resolve, reject) {
+      var timer = null;
+      function settle(fn) {
+        return function (v) {
+          if (timer) clearTimeout(timer);
+          fn(v);
+        };
+      }
+      pending[id] = { resolve: settle(resolve), reject: settle(reject) };
+      if (timeoutMs) {
+        timer = setTimeout(function () {
+          delete pending[id];
+          reject(new Error(method + " timed out after " + timeoutMs + "ms"));
+        }, timeoutMs);
+      }
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
+    });
+  }
+
+  function render(state) {
+    if (!state) return;
+    document.getElementById("empty").hidden = true;
+
+    var heading = "太陽光発電";
+    if (state.ip) heading += " (" + state.ip + ")";
+    document.getElementById("heading").textContent = heading;
+
+    var badge = document.getElementById("badge-status");
+    var isOn = state.operating_status === "稼働中";
+    badge.textContent = state.operating_status || "不明";
+    badge.dataset.on = String(isOn);
+
+    document.getElementById("v-power").textContent =
+      typeof state.instantaneous_power_w === "number" ? state.instantaneous_power_w + " W" : "不明";
+
+    if (typeof state.self_consumption_percent === "number") {
+      document.getElementById("v-selfconsumption").textContent = state.self_consumption_percent + " %";
+      document.getElementById("gauge").style.width = state.self_consumption_percent + "%";
+    } else {
+      document.getElementById("v-selfconsumption").textContent = "不明";
+      document.getElementById("gauge").style.width = "0%";
+    }
+
+    document.getElementById("v-generated").textContent =
+      typeof state.cumulative_generated_kwh === "number" ? state.cumulative_generated_kwh + " kWh" : "不明";
+
+    document.getElementById("v-sold").textContent =
+      typeof state.cumulative_sold_kwh === "number" ? state.cumulative_sold_kwh + " kWh" : "不明";
+
+    document.getElementById("v-interconnection").textContent = state.system_interconnection_status || "不明";
+    document.getElementById("v-restraint").textContent = state.output_power_restraint_status || "不明";
+  }
+
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params }, "*");
+  }
+
+  // Dimensions the host pinned itself. Reporting these back is pointless, and
+  // measuring them is actively wrong: applyContainerDimensions sets the fixed
+  // axis to 100vw/100vh, so scrollWidth/scrollHeight would return the viewport
+  // size rather than the content size.
+  var hostFixedWidth = false;
+  var hostFixedHeight = false;
+  var sizeReportingStarted = false;
+
+  // Flexible views must report their content size; otherwise the host has no
+  // dimensions to apply and the iframe stays collapsed.
+  function startSizeReporting() {
+    if (sizeReportingStarted) return;
+    sizeReportingStarted = true;
+    if (hostFixedWidth && hostFixedHeight) return;
+
+    var lastH = -1, lastW = -1;
+    function report() {
+      var el = document.documentElement;
+      var h = hostFixedHeight ? null : Math.ceil(el.scrollHeight);
+      var w = hostFixedWidth ? null : Math.ceil(el.scrollWidth);
+      if (h === lastH && w === lastW) return;
+      lastH = h; lastW = w;
+      // Omitted axes are left untouched by the host.
+      var params = {};
+      if (w !== null) params.width = w;
+      if (h !== null) params.height = h;
+      sendNotification("ui/notifications/size-changed", params);
+    }
+    report();
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(report).observe(document.body);
+    } else {
+      setInterval(report, 500);
+    }
+  }
+
+  function applyContainerDimensions(hostContext) {
+    var d = hostContext && hostContext.containerDimensions;
+    if (!d) return;
+    var el = document.documentElement;
+    if ("height" in d) { el.style.height = "100vh"; hostFixedHeight = true; }
+    else if (d.maxHeight) el.style.maxHeight = d.maxHeight + "px";
+    if ("width" in d) { el.style.width = "100vw"; hostFixedWidth = true; }
+    else if (d.maxWidth) el.style.maxWidth = d.maxWidth + "px";
+  }
+
+  var INITIALIZE_TIMEOUT_MS = 2000;
+
+  sendRequest("ui/initialize", {
+    appCapabilities: { availableDisplayModes: ["inline"] },
+    clientInfo: { name: "el-mcp-server-solar-ui", version: "0.1.0" },
+    protocolVersion: "2026-01-26"
+  }, INITIALIZE_TIMEOUT_MS).then(function (result) {
+    applyContainerDimensions(result && result.hostContext);
+    // Required by SEP-1865: the host MUST NOT send any request or
+    // notification (including ui/notifications/tool-result) to the view
+    // before it receives this notification.
+    sendNotification("ui/notifications/initialized", {});
+    startSizeReporting();
+  }).catch(function () {
+    // Reached when the host rejects the handshake or stays silent past the
+    // timeout. Report size anyway so a non-conforming host still gets usable
+    // dimensions instead of a collapsed iframe.
+    startSizeReporting();
+  });
+})();
+</script>
+</body>
+</html>

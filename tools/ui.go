@@ -14,7 +14,11 @@ import (
 //go:embed ui/templates/battery.html
 var batteryDashboardHTML string
 
+//go:embed ui/templates/solar.html
+var solarDashboardHTML string
+
 const batteryDashboardURI = "ui://el-mcp-server/battery"
+const solarDashboardURI = "ui://el-mcp-server/solar"
 
 // MCPAppsUIMimeType is the MIME type required by the MCP Apps extension
 // (SEP-1865) for ui:// resources.
@@ -38,6 +42,24 @@ func registerUITools(s *mcp.Server) {
 			},
 		},
 	}, renderBatteryUI)
+
+	s.AddResource(&mcp.Resource{
+		URI:      solarDashboardURI,
+		Name:     "solar_dashboard",
+		Title:    "太陽光発電ダッシュボード",
+		MIMEType: MCPAppsUIMimeType,
+	}, solarDashboardResource)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "render_solar_ui",
+		Description: "指定した太陽光発電システム(EOJ 0279xx)の現在状態(稼働状態・瞬時発電電力・積算発電電力量・積算売電電力量・系統連系状態・出力抑制状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。このダッシュボードは読み取り専用です。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": solarDashboardURI,
+			},
+		},
+	}, renderSolarUI)
 }
 
 func batteryDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -108,6 +130,98 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil && state.ChargeDischargePowerW == nil {
 		return errorResult(fmt.Sprintf("蓄電池(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
+	}
+
+	return jsonResult(state)
+}
+
+func solarDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{
+			{
+				URI:      req.Params.URI,
+				MIMEType: MCPAppsUIMimeType,
+				Text:     solarDashboardHTML,
+			},
+		},
+	}, nil
+}
+
+type renderSolarUIParams struct {
+	IP  string `json:"ip"  jsonschema:"太陽光発電システムのIPアドレス。例: 192.168.1.50"`
+	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、住宅用太陽光発電クラス0279のみ対応)。例: 027901"`
+}
+
+type solarUIState struct {
+	IP                          string   `json:"ip"`
+	EOJ                         string   `json:"eoj"`
+	OperatingStatus             string   `json:"operating_status,omitempty"`
+	InstantaneousPowerW         *uint16  `json:"instantaneous_power_w,omitempty"`
+	CumulativeGeneratedKWh      *float64 `json:"cumulative_generated_kwh,omitempty"`
+	CumulativeSoldKWh           *float64 `json:"cumulative_sold_kwh,omitempty"`
+	SelfConsumptionPercent      *int     `json:"self_consumption_percent,omitempty"`
+	SystemInterconnectionStatus string   `json:"system_interconnection_status,omitempty"`
+	OutputPowerRestraintStatus  string   `json:"output_power_restraint_status,omitempty"`
+}
+
+func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSolarUIParams) (*mcp.CallToolResult, any, error) {
+	eoj, err := echonet.ParseEOJHex(params.EOJ)
+	if err != nil {
+		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
+	}
+
+	groupCode := byte(eoj >> 16)
+	classCode := byte(eoj >> 8)
+	if groupCode != 0x02 || classCode != 0x79 {
+		return errorResult(fmt.Sprintf("render_solar_ui は住宅用太陽光発電(EOJ 0279xx)専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", params.EOJ)), nil, nil
+	}
+
+	state := solarUIState{
+		IP:  params.IP,
+		EOJ: fmt.Sprintf("%06X", eoj),
+	}
+
+	const timeout = 5 * time.Second
+
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperatingStatusEPC, timeout); err == nil {
+		if v, ok := ui.DecodeOperatingStatus(edt); ok {
+			state.OperatingStatus = v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.InstantaneousElectricPowerGenerationEPC, timeout); err == nil {
+		if v, ok := ui.DecodeUnsignedPowerW(edt); ok {
+			state.InstantaneousPowerW = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeElectricEnergyOfGenerationEPC, timeout); err == nil {
+		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
+			state.CumulativeGeneratedKWh = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeElectricEnergySoldEPC, timeout); err == nil {
+		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
+			state.CumulativeSoldKWh = &v
+		}
+	}
+	if state.CumulativeGeneratedKWh != nil && state.CumulativeSoldKWh != nil {
+		if v, ok := ui.SelfConsumptionPercent(*state.CumulativeGeneratedKWh, *state.CumulativeSoldKWh); ok {
+			state.SelfConsumptionPercent = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.SystemInterconnectionStatusEPC, timeout); err == nil {
+		if v, ok := ui.DecodeSystemInterconnectionStatus(edt); ok {
+			state.SystemInterconnectionStatus = v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OutputPowerRestraintStatusEPC, timeout); err == nil {
+		if v, ok := ui.DecodeOutputPowerRestraintStatus(edt); ok {
+			state.OutputPowerRestraintStatus = v
+		}
+	}
+
+	if state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.CumulativeGeneratedKWh == nil &&
+		state.CumulativeSoldKWh == nil && state.SystemInterconnectionStatus == "" && state.OutputPowerRestraintStatus == "" {
+		return errorResult(fmt.Sprintf("太陽光発電システム(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 
 	return jsonResult(state)
