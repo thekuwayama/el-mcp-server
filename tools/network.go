@@ -11,6 +11,20 @@ import (
 	"github.com/thekuwayama/el-mcp-server/echonet/spec/manufacturers"
 )
 
+// parseEOJAndEPC parses eojHex and epcHex, returning a ready-to-return error
+// CallToolResult when either is malformed.
+func parseEOJAndEPC(eojHex, epcHex string) (uint32, byte, *mcp.CallToolResult) {
+	eoj, errRes := parseEOJParam(eojHex)
+	if errRes != nil {
+		return 0, 0, errRes
+	}
+	epcCode, err := parseHexByte(epcHex)
+	if err != nil {
+		return 0, 0, errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", epcHex))
+	}
+	return eoj, epcCode, nil
+}
+
 func registerNetworkTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "discover_devices",
@@ -87,14 +101,9 @@ type propertyValue struct {
 }
 
 func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyParams) (*mcp.CallToolResult, any, error) {
-	eoj, err := echonet.ParseEOJHex(params.EOJ)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
-	}
-
-	epcCode, err := parseHexByte(params.EPC)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
+	eoj, epcCode, errRes := parseEOJAndEPC(params.EOJ, params.EPC)
+	if errRes != nil {
+		return errRes, nil, nil
 	}
 
 	edt, err := echonet.GetProperty(params.IP, eoj, epcCode, 5*time.Second)
@@ -102,16 +111,11 @@ func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyP
 		return errorResult(fmt.Sprintf("プロパティ取得エラー: %v", err)), nil, nil
 	}
 
-	hexParts := make([]string, len(edt))
-	for i, b := range edt {
-		hexParts[i] = fmt.Sprintf("%02X", b)
-	}
-
 	result := propertyValue{
 		IP:       params.IP,
 		EOJ:      strings.ToUpper(params.EOJ),
 		EPC:      strings.ToUpper(params.EPC),
-		EDTHex:   strings.Join(hexParts, " "),
+		EDTHex:   hexJoin(edt),
 		EDTBytes: len(edt),
 	}
 	if epcCode == 0x8A {
@@ -138,14 +142,9 @@ type setPropertyResult struct {
 }
 
 func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyParams) (*mcp.CallToolResult, any, error) {
-	eoj, err := echonet.ParseEOJHex(params.EOJ)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
-	}
-
-	epcCode, err := parseHexByte(params.EPC)
-	if err != nil {
-		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
+	eoj, epcCode, errRes := parseEOJAndEPC(params.EOJ, params.EPC)
+	if errRes != nil {
+		return errRes, nil, nil
 	}
 
 	edt, err := parseHexBytes(params.EDT)
@@ -157,16 +156,11 @@ func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyP
 		return errorResult(fmt.Sprintf("プロパティ書き込みエラー: %v", err)), nil, nil
 	}
 
-	hexParts := make([]string, len(edt))
-	for i, b := range edt {
-		hexParts[i] = fmt.Sprintf("%02X", b)
-	}
-
 	return jsonResult(setPropertyResult{
 		IP:     params.IP,
 		EOJ:    strings.ToUpper(params.EOJ),
 		EPC:    strings.ToUpper(params.EPC),
-		EDTHex: strings.Join(hexParts, " "),
+		EDTHex: hexJoin(edt),
 		Status: "success",
 	})
 }
