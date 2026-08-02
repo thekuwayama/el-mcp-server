@@ -1,7 +1,5 @@
 package ui
 
-import "fmt"
-
 // EV charger/discharger (V2H) EPC codes (ECHONET Lite 0x027E electric
 // vehicle charger and discharger class). OperatingStatusEPC (0x80),
 // OperationModeEPC (0xDA), ChargeDischargePowerEPC (0xD3), and
@@ -41,22 +39,10 @@ var vehicleConnectionStatusNames = map[byte]string{
 // DecodeV2HOperationMode decodes EPC 0xDA (1 byte state enum) for EV
 // charger/dischargers into a Japanese label.
 func DecodeV2HOperationMode(edt []byte) (string, bool) {
-	if len(edt) != 1 {
-		return "", false
-	}
-	if name, ok := v2hOperationModeNames[edt[0]]; ok {
-		return name, true
-	}
-	return fmt.Sprintf("不明(0x%02X)", edt[0]), true
+	return decodeStateEnum(edt, v2hOperationModeNames)
 }
 
 // DecodeVehicleConnectionStatus decodes EPC 0xC7 (1 byte state enum) into a Japanese label.
 func DecodeVehicleConnectionStatus(edt []byte) (string, bool) {
-	if len(edt) != 1 {
-		return "", false
-	}
-	if name, ok := vehicleConnectionStatusNames[edt[0]]; ok {
-		return name, true
-	}
-	return fmt.Sprintf("不明(0x%02X)", edt[0]), true
+	return decodeStateEnum(edt, vehicleConnectionStatusNames)
 }
