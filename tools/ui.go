@@ -74,7 +74,7 @@ func registerUITools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_v2h_ui",
-		Description: "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+		Description: "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		Meta: mcp.Meta{
 			"ui": map[string]any{
@@ -267,13 +267,15 @@ type renderV2HUIParams struct {
 }
 
 type v2hUIState struct {
-	IP                       string `json:"ip"`
-	EOJ                      string `json:"eoj"`
-	OperatingStatus          string `json:"operating_status,omitempty"`
-	OperationMode            string `json:"operation_mode,omitempty"`
-	RemainingCapacityPercent *int   `json:"remaining_capacity_percent,omitempty"`
-	ChargeDischargePowerW    *int32 `json:"charge_discharge_power_w,omitempty"`
-	VehicleConnectionStatus  string `json:"vehicle_connection_status,omitempty"`
+	IP                       string   `json:"ip"`
+	EOJ                      string   `json:"eoj"`
+	OperatingStatus          string   `json:"operating_status,omitempty"`
+	OperationMode            string   `json:"operation_mode,omitempty"`
+	RemainingCapacityPercent *int     `json:"remaining_capacity_percent,omitempty"`
+	ChargeDischargePowerW    *int32   `json:"charge_discharge_power_w,omitempty"`
+	CumulativeChargingKWh    *float64 `json:"cumulative_charging_kwh,omitempty"`
+	CumulativeDischargingKWh *float64 `json:"cumulative_discharging_kwh,omitempty"`
+	VehicleConnectionStatus  string   `json:"vehicle_connection_status,omitempty"`
 }
 
 func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIParams) (*mcp.CallToolResult, any, error) {
@@ -315,6 +317,16 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 			state.ChargeDischargePowerW = &v
 		}
 	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeChargingEnergyEPC, timeout); err == nil {
+		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
+			state.CumulativeChargingKWh = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.CumulativeDischargingEnergyEPC, timeout); err == nil {
+		if v, ok := ui.DecodeCumulativeEnergyKWh(edt); ok {
+			state.CumulativeDischargingKWh = &v
+		}
+	}
 	if edt, err := echonet.GetProperty(params.IP, eoj, ui.VehicleConnectionStatusEPC, timeout); err == nil {
 		if v, ok := ui.DecodeVehicleConnectionStatus(edt); ok {
 			state.VehicleConnectionStatus = v
@@ -322,7 +334,8 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil &&
-		state.ChargeDischargePowerW == nil && state.VehicleConnectionStatus == "" {
+		state.ChargeDischargePowerW == nil && state.CumulativeChargingKWh == nil &&
+		state.CumulativeDischargingKWh == nil && state.VehicleConnectionStatus == "" {
 		return errorResult(fmt.Sprintf("V2H(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 

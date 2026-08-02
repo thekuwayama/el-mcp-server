@@ -8,7 +8,9 @@ import "fmt"
 // RemainingCapacityPercentEPC (0xE4) are shared with battery_decode.go —
 // same EPC numbers and generic decode shape (state / signed power / percent).
 const (
-	VehicleConnectionStatusEPC = 0xC7 // state enum
+	VehicleConnectionStatusEPC     = 0xC7 // state enum
+	CumulativeDischargingEnergyEPC = 0xD6 // number 0-999999.999kWh (raw x0.001), decode with DecodeCumulativeEnergyKWh
+	CumulativeChargingEnergyEPC    = 0xD8 // number 0-999999.999kWh (raw x0.001), decode with DecodeCumulativeEnergyKWh
 )
 
 // V2H's 0xDA enum diverges from the battery class despite sharing the same

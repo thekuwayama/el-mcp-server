@@ -92,6 +92,8 @@
     </dd>
     <dt>車載電池残容量</dt><dd id="v-capacity">-</dd>
     <dt>充放電電力</dt><dd id="v-power">-</dd>
+    <dt>積算充電電力量</dt><dd id="v-charged">-</dd>
+    <dt>積算放電電力量</dt><dd id="v-discharged">-</dd>
     <dt>車両接続状態</dt><dd id="v-connection">-</dd>
   </dl>
   <div class="empty" id="empty" hidden>この機器からは表示可能な情報が取得できませんでした。</div>
@@ -251,6 +253,12 @@
     } else {
       document.getElementById("v-power").textContent = "不明";
     }
+
+    document.getElementById("v-charged").textContent =
+      typeof state.cumulative_charging_kwh === "number" ? state.cumulative_charging_kwh + " kWh" : "不明";
+
+    document.getElementById("v-discharged").textContent =
+      typeof state.cumulative_discharging_kwh === "number" ? state.cumulative_discharging_kwh + " kWh" : "不明";
 
     document.getElementById("v-connection").textContent = state.vehicle_connection_status || "不明";
   }
