@@ -17,8 +17,12 @@ var batteryDashboardHTML string
 //go:embed ui/templates/solar.html
 var solarDashboardHTML string
 
+//go:embed ui/templates/v2h.html
+var v2hDashboardHTML string
+
 const batteryDashboardURI = "ui://el-mcp-server/battery"
 const solarDashboardURI = "ui://el-mcp-server/solar"
+const v2hDashboardURI = "ui://el-mcp-server/v2h"
 
 // MCPAppsUIMimeType is the MIME type required by the MCP Apps extension
 // (SEP-1865) for ui:// resources.
@@ -60,6 +64,24 @@ func registerUITools(s *mcp.Server) {
 			},
 		},
 	}, renderSolarUI)
+
+	s.AddResource(&mcp.Resource{
+		URI:      v2hDashboardURI,
+		Name:     "v2h_dashboard",
+		Title:    "V2Hダッシュボード",
+		MIMEType: MCPAppsUIMimeType,
+	}, v2hDashboardResource)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "render_v2h_ui",
+		Description: "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": v2hDashboardURI,
+			},
+		},
+	}, renderV2HUI)
 }
 
 func batteryDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -222,6 +244,86 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 	if state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.CumulativeGeneratedKWh == nil &&
 		state.CumulativeSoldKWh == nil && state.SystemInterconnectionStatus == "" && state.OutputPowerRestraintStatus == "" {
 		return errorResult(fmt.Sprintf("太陽光発電システム(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
+	}
+
+	return jsonResult(state)
+}
+
+func v2hDashboardResource(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{
+			{
+				URI:      req.Params.URI,
+				MIMEType: MCPAppsUIMimeType,
+				Text:     v2hDashboardHTML,
+			},
+		},
+	}, nil
+}
+
+type renderV2HUIParams struct {
+	IP  string `json:"ip"  jsonschema:"V2H(電気自動車充放電器)のIPアドレス。例: 192.168.1.50"`
+	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、電気自動車充放電器クラス027Eのみ対応)。例: 027E01"`
+}
+
+type v2hUIState struct {
+	IP                       string `json:"ip"`
+	EOJ                      string `json:"eoj"`
+	OperatingStatus          string `json:"operating_status,omitempty"`
+	OperationMode            string `json:"operation_mode,omitempty"`
+	RemainingCapacityPercent *int   `json:"remaining_capacity_percent,omitempty"`
+	ChargeDischargePowerW    *int32 `json:"charge_discharge_power_w,omitempty"`
+	VehicleConnectionStatus  string `json:"vehicle_connection_status,omitempty"`
+}
+
+func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIParams) (*mcp.CallToolResult, any, error) {
+	eoj, err := echonet.ParseEOJHex(params.EOJ)
+	if err != nil {
+		return errorResult(fmt.Sprintf("EOJの形式が正しくありません: %s", params.EOJ)), nil, nil
+	}
+
+	groupCode := byte(eoj >> 16)
+	classCode := byte(eoj >> 8)
+	if groupCode != 0x02 || classCode != 0x7E {
+		return errorResult(fmt.Sprintf("render_v2h_ui はV2H(電気自動車充放電器、EOJ 027Exx)専用です。指定されたEOJ %s は対象外です。他の機器は get_property をご利用ください。", params.EOJ)), nil, nil
+	}
+
+	state := v2hUIState{
+		IP:  params.IP,
+		EOJ: fmt.Sprintf("%06X", eoj),
+	}
+
+	const timeout = 5 * time.Second
+
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperatingStatusEPC, timeout); err == nil {
+		if v, ok := ui.DecodeOperatingStatus(edt); ok {
+			state.OperatingStatus = v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.OperationModeEPC, timeout); err == nil {
+		if v, ok := ui.DecodeV2HOperationMode(edt); ok {
+			state.OperationMode = v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout); err == nil {
+		if v, ok := ui.DecodePercent(edt); ok {
+			state.RemainingCapacityPercent = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout); err == nil {
+		if v, ok := ui.DecodeSignedPowerW(edt); ok {
+			state.ChargeDischargePowerW = &v
+		}
+	}
+	if edt, err := echonet.GetProperty(params.IP, eoj, ui.VehicleConnectionStatusEPC, timeout); err == nil {
+		if v, ok := ui.DecodeVehicleConnectionStatus(edt); ok {
+			state.VehicleConnectionStatus = v
+		}
+	}
+
+	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil &&
+		state.ChargeDischargePowerW == nil && state.VehicleConnectionStatus == "" {
+		return errorResult(fmt.Sprintf("V2H(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 
 	return jsonResult(state)

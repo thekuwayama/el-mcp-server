@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>V2Hダッシュボード</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: transparent;
+    color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eaeaea; }
+  }
+  .card {
+    border: 1px solid rgba(128,128,128,0.3);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .title { font-size: 14px; opacity: 0.7; margin-bottom: 12px; }
+  .gauge {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(128,128,128,0.2);
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .gauge-fill {
+    height: 100%;
+    background: #1565c0;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  .rows { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 13px; align-items: center; }
+  .rows dt { opacity: 0.7; }
+  .rows dd { margin: 0; font-weight: 600; text-align: right; }
+  .empty { opacity: 0.6; font-size: 13px; }
+
+  .toggle {
+    font: inherit;
+    font-weight: 600;
+    padding: 3px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(128,128,128,0.4);
+    background: rgba(128,128,128,0.12);
+    color: inherit;
+    cursor: pointer;
+  }
+  .toggle[data-on="true"] {
+    border-color: #1565c0;
+    background: rgba(21,101,192,0.15);
+    color: #1565c0;
+  }
+  .toggle:disabled, select:disabled { opacity: 0.5; cursor: default; }
+  .toggle:focus-visible, select:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
+
+  select {
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    background: rgba(128,128,128,0.12);
+    border: 1px solid rgba(128,128,128,0.4);
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+
+  .error {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    .error { color: #ef9a9a; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title" id="heading">V2H 読み込み中…</div>
+  <div class="gauge"><div class="gauge-fill" id="gauge"></div></div>
+  <dl class="rows" id="rows">
+    <dt>状態</dt>
+    <dd><button type="button" id="btn-status" class="toggle" disabled>-</button></dd>
+    <dt>運転モード</dt>
+    <dd>
+      <select id="sel-mode" disabled>
+        <option value="">-</option>
+      </select>
+    </dd>
+    <dt>車載電池残容量</dt><dd id="v-capacity">-</dd>
+    <dt>充放電電力</dt><dd id="v-power">-</dd>
+    <dt>車両接続状態</dt><dd id="v-connection">-</dd>
+  </dl>
+  <div class="empty" id="empty" hidden>この機器からは表示可能な情報が取得できませんでした。</div>
+  <div class="error" id="error" hidden></div>
+</div>
+<script>
+(function () {
+  var nextId = 1;
+  var pending = {};
+  var current = null; // last rendered v2hUIState (ip/eoj carried for control actions)
+
+  // Mirrors tools/ui/v2h_decode.go v2hOperationModeNames — keep in sync.
+  var OPERATION_MODES = [
+    ["40", "その他"],
+    ["42", "充電"],
+    ["43", "放電"],
+    ["44", "待機"],
+    ["46", "充放電"],
+    ["47", "停止"],
+    ["48", "準備"],
+    ["49", "自動"]
+  ];
+
+  var btnStatus = document.getElementById("btn-status");
+  var selMode = document.getElementById("sel-mode");
+  var errorEl = document.getElementById("error");
+
+  OPERATION_MODES.forEach(function (entry) {
+    var opt = document.createElement("option");
+    opt.value = entry[0];
+    opt.textContent = entry[1];
+    selMode.appendChild(opt);
+  });
+
+  window.addEventListener("message", function (event) {
+    var msg = event.data;
+    if (!msg || msg.jsonrpc !== "2.0") return;
+
+    if (msg.id !== undefined && pending[msg.id]) {
+      var cb = pending[msg.id];
+      delete pending[msg.id];
+      if (msg.error) cb.reject(msg.error);
+      else cb.resolve(msg.result);
+      return;
+    }
+
+    if (msg.method === "ui/notifications/tool-result") {
+      render(msg.params && msg.params.structuredContent);
+    }
+  });
+
+  // timeoutMs is optional. Without it a silent host leaves the promise pending
+  // forever, which also means the caller's .catch() fallback never runs.
+  function sendRequest(method, params, timeoutMs) {
+    var id = nextId++;
+    return new Promise(function (resolve, reject) {
+      var timer = null;
+      function settle(fn) {
+        return function (v) {
+          if (timer) clearTimeout(timer);
+          fn(v);
+        };
+      }
+      pending[id] = { resolve: settle(resolve), reject: settle(reject) };
+      if (timeoutMs) {
+        timer = setTimeout(function () {
+          delete pending[id];
+          reject(new Error(method + " timed out after " + timeoutMs + "ms"));
+        }, timeoutMs);
+      }
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
+    });
+  }
+
+  function callTool(name, args) {
+    return sendRequest("tools/call", { name: name, arguments: args }).then(function (result) {
+      if (result && result.isError) {
+        var text = (result.content || []).map(function (c) { return c.text; }).filter(Boolean).join(" ");
+        throw new Error(text || (name + " failed"));
+      }
+      return result;
+    });
+  }
+
+  function showError(err) {
+    errorEl.textContent = (err && err.message) || String(err);
+    errorEl.hidden = false;
+  }
+
+  function clearError() {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  function setControlsEnabled(enabled) {
+    btnStatus.disabled = !enabled;
+    selMode.disabled = !enabled;
+  }
+
+  function applyProperty(epc, edt) {
+    if (!current || !current.ip || !current.eoj) return;
+    clearError();
+    setControlsEnabled(false);
+
+    callTool("set_property", { ip: current.ip, eoj: current.eoj, epc: epc, edt: edt })
+      .then(function () {
+        return callTool("render_v2h_ui", { ip: current.ip, eoj: current.eoj });
+      })
+      .then(function (result) {
+        render(result && result.structuredContent);
+      })
+      .catch(function (err) {
+        showError(err);
+        setControlsEnabled(true);
+      });
+  }
+
+  btnStatus.addEventListener("click", function () {
+    var turningOn = btnStatus.dataset.on !== "true";
+    applyProperty("80", turningOn ? "30" : "31");
+  });
+
+  selMode.addEventListener("change", function () {
+    if (!selMode.value) return;
+    applyProperty("DA", selMode.value);
+  });
+
+  function render(state) {
+    if (!state) return;
+    current = state;
+    document.getElementById("empty").hidden = true;
+
+    var heading = "V2H";
+    if (state.ip) heading += " (" + state.ip + ")";
+    document.getElementById("heading").textContent = heading;
+
+    var isOn = state.operating_status === "稼働中";
+    btnStatus.textContent = state.operating_status || "不明";
+    btnStatus.dataset.on = String(isOn);
+    btnStatus.disabled = !state.ip || !state.eoj;
+
+    var modeEntry = OPERATION_MODES.filter(function (e) { return state.operation_mode === e[1]; })[0];
+    selMode.value = modeEntry ? modeEntry[0] : "";
+    selMode.disabled = !state.ip || !state.eoj;
+
+    if (typeof state.remaining_capacity_percent === "number") {
+      document.getElementById("v-capacity").textContent = state.remaining_capacity_percent + " %";
+      document.getElementById("gauge").style.width = state.remaining_capacity_percent + "%";
+    } else {
+      document.getElementById("v-capacity").textContent = "不明";
+    }
+
+    if (typeof state.charge_discharge_power_w === "number") {
+      var w = state.charge_discharge_power_w;
+      var label = w > 0 ? "充電中 " : w < 0 ? "放電中 " : "";
+      document.getElementById("v-power").textContent = label + Math.abs(w) + " W";
+    } else {
+      document.getElementById("v-power").textContent = "不明";
+    }
+
+    document.getElementById("v-connection").textContent = state.vehicle_connection_status || "不明";
+  }
+
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params }, "*");
+  }
+
+  // Dimensions the host pinned itself. Reporting these back is pointless, and
+  // measuring them is actively wrong: applyContainerDimensions sets the fixed
+  // axis to 100vw/100vh, so scrollWidth/scrollHeight would return the viewport
+  // size rather than the content size.
+  var hostFixedWidth = false;
+  var hostFixedHeight = false;
+  var sizeReportingStarted = false;
+
+  // Flexible views must report their content size; otherwise the host has no
+  // dimensions to apply and the iframe stays collapsed.
+  function startSizeReporting() {
+    if (sizeReportingStarted) return;
+    sizeReportingStarted = true;
+    if (hostFixedWidth && hostFixedHeight) return;
+
+    var lastH = -1, lastW = -1;
+    function report() {
+      var el = document.documentElement;
+      var h = hostFixedHeight ? null : Math.ceil(el.scrollHeight);
+      var w = hostFixedWidth ? null : Math.ceil(el.scrollWidth);
+      if (h === lastH && w === lastW) return;
+      lastH = h; lastW = w;
+      // Omitted axes are left untouched by the host.
+      var params = {};
+      if (w !== null) params.width = w;
+      if (h !== null) params.height = h;
+      sendNotification("ui/notifications/size-changed", params);
+    }
+    report();
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(report).observe(document.body);
+    } else {
+      setInterval(report, 500);
+    }
+  }
+
+  function applyContainerDimensions(hostContext) {
+    var d = hostContext && hostContext.containerDimensions;
+    if (!d) return;
+    var el = document.documentElement;
+    if ("height" in d) { el.style.height = "100vh"; hostFixedHeight = true; }
+    else if (d.maxHeight) el.style.maxHeight = d.maxHeight + "px";
+    if ("width" in d) { el.style.width = "100vw"; hostFixedWidth = true; }
+    else if (d.maxWidth) el.style.maxWidth = d.maxWidth + "px";
+  }
+
+  var INITIALIZE_TIMEOUT_MS = 2000;
+
+  sendRequest("ui/initialize", {
+    appCapabilities: { availableDisplayModes: ["inline"] },
+    clientInfo: { name: "el-mcp-server-v2h-ui", version: "0.1.0" },
+    protocolVersion: "2026-01-26"
+  }, INITIALIZE_TIMEOUT_MS).then(function (result) {
+    applyContainerDimensions(result && result.hostContext);
+    // Required by SEP-1865: the host MUST NOT send any request or
+    // notification (including ui/notifications/tool-result) to the view
+    // before it receives this notification.
+    sendNotification("ui/notifications/initialized", {});
+    startSizeReporting();
+  }).catch(function () {
+    // Reached when the host rejects the handshake or stays silent past the
+    // timeout. Report size anyway so a non-conforming host still gets usable
+    // dimensions instead of a collapsed iframe.
+    startSizeReporting();
+  });
+})();
+</script>
+</body>
+</html>
