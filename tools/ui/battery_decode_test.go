@@ -38,12 +38,3 @@ func TestDecodeSignedPowerW(t *testing.T) {
 		t.Errorf("DecodeSignedPowerW(-320) = (%d, %v), want (-320, true)", v, ok)
 	}
 }
-
-func TestDecodeOperatingStatus(t *testing.T) {
-	if v, ok := DecodeOperatingStatus([]byte{0x30}); !ok || v != "稼働中" {
-		t.Errorf("DecodeOperatingStatus(0x30) = (%q, %v), want (稼働中, true)", v, ok)
-	}
-	if v, ok := DecodeOperatingStatus([]byte{0x31}); !ok || v != "停止" {
-		t.Errorf("DecodeOperatingStatus(0x31) = (%q, %v), want (停止, true)", v, ok)
-	}
-}

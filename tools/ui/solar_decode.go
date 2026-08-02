@@ -1,7 +1,5 @@
 package ui
 
-import "fmt"
-
 // Solar power generation EPC codes (ECHONET Lite 0x0279 household solar
 // power generation class). OperatingStatusEPC (0x80) is a superclass
 // property shared with battery_decode.go.
@@ -30,24 +28,12 @@ var outputPowerRestraintStatusNames = map[byte]string{
 
 // DecodeSystemInterconnectionStatus decodes EPC 0xD0 (1 byte state enum) into a Japanese label.
 func DecodeSystemInterconnectionStatus(edt []byte) (string, bool) {
-	if len(edt) != 1 {
-		return "", false
-	}
-	if name, ok := systemInterconnectionStatusNames[edt[0]]; ok {
-		return name, true
-	}
-	return fmt.Sprintf("不明(0x%02X)", edt[0]), true
+	return decodeStateEnum(edt, systemInterconnectionStatusNames)
 }
 
 // DecodeOutputPowerRestraintStatus decodes EPC 0xD1 (1 byte state enum) into a Japanese label.
 func DecodeOutputPowerRestraintStatus(edt []byte) (string, bool) {
-	if len(edt) != 1 {
-		return "", false
-	}
-	if name, ok := outputPowerRestraintStatusNames[edt[0]]; ok {
-		return name, true
-	}
-	return fmt.Sprintf("不明(0x%02X)", edt[0]), true
+	return decodeStateEnum(edt, outputPowerRestraintStatusNames)
 }
 
 // DecodeUnsignedPowerW decodes a 2-byte unsigned power value in watts (0-65533), used by EPC 0xE0.
