@@ -1,6 +1,7 @@
 # el-mcp-server
 
 [![Actions Status](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml/badge.svg)](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml)
+[![ECHONET Lite MRA](https://img.shields.io/badge/ECHONET_Lite_MRA-v1.4.0-blue)](https://echonet.jp/spec_mra_rr3/)
 
 ECHONET Lite の情報を AI から利用可能にする MCP (Model Context Protocol) サーバーです。Go で実装しています。
 
