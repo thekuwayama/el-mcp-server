@@ -18,6 +18,8 @@ jobs:
 
       - run: go vet ./...
 
+      - run: go test ./...
+
       - run: go build -o el-mcp-server .
 
       - run: go build ./cmd/update-mra ./cmd/gen-manufacturers
