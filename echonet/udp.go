@@ -90,6 +90,18 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 	p := ipv4.NewPacketConn(conn)
 	_ = p.SetMulticastLoopback(true)
 
+	// Explicitly select the outgoing interface for the multicast send. Without
+	// this, the socket (bound to 0.0.0.0) relies on the OS's default route to
+	// pick an interface, which can point at a non-multicast-capable interface
+	// (e.g. a VPN tunnel) and fail with "sendto: no route to host".
+	iface, err := defaultMulticastInterface()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.SetMulticastInterface(iface); err != nil {
+		return nil, fmt.Errorf("set multicast interface %s: %w", iface.Name, err)
+	}
+
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, err
@@ -139,6 +151,33 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		results = append(results, DiscoverResult{IP: ip, EOJs: eojs})
 	}
 	return results, nil
+}
+
+// defaultMulticastInterface returns the first up, non-loopback network
+// interface with an IPv4 address and multicast support, for use as the
+// outgoing interface of a multicast send.
+func defaultMulticastInterface() (*net.Interface, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("list network interfaces: %w", err)
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagMulticast == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if ok && ipNet.IP.To4() != nil {
+				return &iface, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no active IPv4 multicast-capable network interface found")
 }
 
 // GetProperty retrieves a single EPC value from a device via unicast UDP.
