@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build mcpb clean
+.PHONY: help build test mcpb clean
 
 ## show this help
 help:
@@ -9,6 +9,10 @@ help:
 ## build the el-mcp-server binary
 build:
 	go build -o el-mcp-server .
+
+## run tests
+test:
+	go test ./...
 
 ## build the .mcpb bundle (macOS only)
 mcpb:
