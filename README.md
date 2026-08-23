@@ -194,7 +194,7 @@ go build -o el-mcp-server .
 ## Claude Code への登録
 
 ```bash
-claude mcp add el-mcp-server -- /path/to/el-mcp-server
+claude mcp add el-mcp-server -- /path/to/el-mcp-server/mcpb/el-mcp-server
 ```
 
 登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
