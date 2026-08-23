@@ -222,3 +222,4 @@ Claude Desktop など [.mcpb](https://github.com/anthropics/mcpb) MCP Bundle 対
 - 機器への書き込みは `set_property`（SetC）のみ対応しています。SetI（応答なしの書き込み）は未実装です
 - `set_property` は機器の実際の状態（運転モード・温度設定など）を変更します。呼び出し前に対象 EPC が書き込み可能か、EDT が正しい形式かを `get_epc_detail` で確認してください
 - `search_certified_products` の `keyword` は echonet.jp に server 側でクエリを渡して絞り込みますが、`maker` / `category` は echonet.jp 側が確実に絞り込まないため、取得した結果をクライアント側で再フィルタしています。最大 5 ページ（60 件）分しか走査しないため、該当件数が多いカテゴリでは一致する製品でも取得できない場合があります
+- `discover_devices` / `get_property` / `set_property` は IPv4（UDP4ソケット）のみに対応しています。IPv6 の ECHONET Lite 機器（マルチキャストアドレス `FF02::1`）は探索・操作できません
