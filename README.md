@@ -62,7 +62,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 
 | ツール | 概要 |
 |---|---|
-| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/sep/1865)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
+| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
 | `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/solar` リソースをダッシュボード UI として表示。仕様上ほとんどのプロパティが読み取り専用のため、`render_battery_ui` と異なり操作系のコントロールは持たない読み取り専用ダッシュボード |
 | `render_v2h_ui` | V2H(電気自動車充放電器、EOJ `027Exx`)の稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/v2h` リソースをダッシュボード UI として表示。運転モード(EPC `DA`)・充放電電力(EPC `D3`)・電池残容量(EPC `E4`)は蓄電池クラスと同じ EPC 番号・データ形式のため、`render_battery_ui` と同様に稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能。ただし運転モードの列挙値は蓄電池クラスと一部異なる（`tools/ui/v2h_decode.go` 参照） |
 
