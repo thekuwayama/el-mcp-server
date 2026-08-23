@@ -15,9 +15,15 @@
     "url": "https://github.com/thekuwayama/el-mcp-server"
   },
   "homepage": "https://github.com/thekuwayama/el-mcp-server",
-  "keywords": ["echonet-lite", "smart-home", "mcp-apps"],
+  "keywords": [
+    "echonet-lite",
+    "smart-home",
+    "mcp-apps"
+  ],
   "compatibility": {
-    "platforms": ["darwin"]
+    "platforms": [
+      "darwin"
+    ]
   },
   "server": {
     "type": "binary",
@@ -28,32 +34,20 @@
   },
   "tools": [
     {
-      "name": "search_device_class",
-      "description": "名前・キーワード・EOJコードでECHONET Lite機器クラスを検索します。EOJは4桁16進(例: 0130)で指定可能。"
-    },
-    {
-      "name": "list_epc",
-      "description": "指定機器クラス(EOJ)のECHONET LiteプロパティコードEPC一覧を返します。EOJは4桁16進(例: 0130)で指定。スーパークラス共通EPCも含みます。"
+      "name": "discover_devices",
+      "description": "LAN内のECHONET Lite機器を探索します。UDPマルチキャストでノードプロファイルに問い合わせ、応答した機器のIPアドレスとEOJ一覧を返します。"
     },
     {
       "name": "get_epc_detail",
       "description": "指定機器クラス(EOJ)の特定EPC詳細(データ型・単位・アクセス規則・説明)を返します。"
     },
     {
-      "name": "discover_devices",
-      "description": "LAN内のECHONET Lite機器を探索します。UDPマルチキャストでノードプロファイルに問い合わせ、応答した機器のIPアドレスとEOJ一覧を返します。"
-    },
-    {
       "name": "get_property",
       "description": "指定したECHONET Lite機器のEPCプロパティ値をUDP Getで取得します。値はhex文字列で返ります。"
     },
     {
-      "name": "set_property",
-      "description": "指定したECHONET Lite機器のEPCプロパティ値をUDP SetC(応答あり)で書き込みます。機器の実際の状態を変更する操作です。事前にget_propertyやget_epc_detailで書き込み可能なEPCとEDTの形式を確認してから呼び出してください。"
-    },
-    {
-      "name": "search_certified_products",
-      "description": "ECHONET Lite認証登録製品をechonet.jpで検索します。メーカー名・機種(カテゴリ)・キーワードで絞り込み可能。"
+      "name": "list_epc",
+      "description": "指定機器クラス(EOJ)のECHONET LiteプロパティコードEPC一覧を返します。EOJは4桁16進(例: 0130)で指定。スーパークラス共通EPCも含みます。"
     },
     {
       "name": "render_battery_ui",
@@ -66,6 +60,18 @@
     {
       "name": "render_v2h_ui",
       "description": "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。"
+    },
+    {
+      "name": "search_certified_products",
+      "description": "ECHONET Lite認証登録製品をechonet.jpで検索します。メーカー名・機種(カテゴリ)・キーワードで絞り込み可能。"
+    },
+    {
+      "name": "search_device_class",
+      "description": "名前・キーワード・EOJコードでECHONET Lite機器クラスを検索します。EOJは4桁16進(例: 0130)で指定可能。"
+    },
+    {
+      "name": "set_property",
+      "description": "指定したECHONET Lite機器のEPCプロパティ値をUDP SetC(応答あり)で書き込みます。機器の実際の状態を変更する操作です。事前にget_propertyやget_epc_detailで書き込み可能なEPCとEDTの形式を確認してから呼び出してください。"
     }
   ]
 }

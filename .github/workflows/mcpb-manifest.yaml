@@ -1,4 +1,4 @@
-name: CI
+name: mcpb manifest sync
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -16,10 +16,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go vet ./...
-
-      - run: go test ./...
-
-      - run: go build -o el-mcp-server .
-
-      - run: go build ./cmd/update-mra ./cmd/gen-manufacturers ./cmd/gen-mcpb-manifest
+      - name: check mcpb/manifest.json tools are in sync
+        run: |
+          go run ./cmd/gen-mcpb-manifest
+          git diff --exit-code mcpb/manifest.json
