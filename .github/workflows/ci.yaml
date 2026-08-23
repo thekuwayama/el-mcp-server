@@ -16,6 +16,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: check gofmt
+        run: |
+          diff=$(gofmt -l .)
+          if [ -n "$diff" ]; then
+            echo "$diff"
+            exit 1
+          fi
+
       - run: go vet ./...
 
       - run: go test ./...

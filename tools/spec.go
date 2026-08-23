@@ -90,10 +90,10 @@ func listEPC(_ context.Context, _ *mcp.CallToolRequest, params *listEPCParams) (
 	}
 
 	type response struct {
-		EOJ         string       `json:"eoj"`
-		NameJP      string       `json:"name_jp"`
-		SuperClass  []epcSummary `json:"super_class_epcs"`
-		ClassEPCs   []epcSummary `json:"class_epcs"`
+		EOJ        string       `json:"eoj"`
+		NameJP     string       `json:"name_jp"`
+		SuperClass []epcSummary `json:"super_class_epcs"`
+		ClassEPCs  []epcSummary `json:"class_epcs"`
 	}
 
 	resp := response{

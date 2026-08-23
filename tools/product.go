@@ -249,24 +249,6 @@ func textContent(n *html.Node) string {
 	return sb.String()
 }
 
-func collectTexts(n *html.Node) []string {
-	var texts []string
-	var walk func(*html.Node)
-	walk = func(node *html.Node) {
-		if node.Type == html.TextNode {
-			t := strings.TrimSpace(node.Data)
-			if t != "" {
-				texts = append(texts, t)
-			}
-		}
-		for c := node.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(n)
-	return texts
-}
-
 func isElement(n *html.Node, tag string) bool {
 	return n.Type == html.ElementNode && n.Data == tag
 }

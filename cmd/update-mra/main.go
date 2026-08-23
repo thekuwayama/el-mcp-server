@@ -94,10 +94,10 @@ func main() {
 
 	// node profile, super class, definitions, metadata
 	extras := map[string]string{
-		mraRoot + "nodeProfile/0x0EF0.json": filepath.Join(destDir, "0x0EF0.json"),
-		mraRoot + "superClass/0x0000.json":  filepath.Join(destDir, "0x0000.json"),
+		mraRoot + "nodeProfile/0x0EF0.json":      filepath.Join(destDir, "0x0EF0.json"),
+		mraRoot + "superClass/0x0000.json":       filepath.Join(destDir, "0x0000.json"),
 		mraRoot + "definitions/definitions.json": filepath.Join(destDir, "definitions.json"),
-		mraRoot + "metaData.json":           filepath.Join(destDir, "metaData.json"),
+		mraRoot + "metaData.json":                filepath.Join(destDir, "metaData.json"),
 	}
 	for src, dst := range extras {
 		if err := extractFile(zr, src, dst); err != nil {
