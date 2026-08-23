@@ -1,0 +1,71 @@
+{
+  "manifest_version": "0.3",
+  "name": "el-mcp-server",
+  "display_name": "el-mcp-server",
+  "version": "0.1.0",
+  "description": "ECHONET Lite の情報を AI から利用可能にする MCP サーバー",
+  "long_description": "ECHONET Lite Appendix (MRA) の仕様検索、同一 LAN 上の ECHONET Lite 機器との UDP 通信、echonet.jp の認証登録製品検索、MCP Apps 対応クライアント向けの機器ダッシュボード UI 表示を提供します。set_property および render_battery_ui / render_v2h_ui のダッシュボード操作は機器の実際の状態(運転モード・稼働状態など)を変更するため、実行前に get_epc_detail で書き込み可否と EDT の形式を確認してください。",
+  "author": {
+    "name": "thekuwayama",
+    "url": "https://github.com/thekuwayama"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thekuwayama/el-mcp-server"
+  },
+  "homepage": "https://github.com/thekuwayama/el-mcp-server",
+  "keywords": ["echonet-lite", "smart-home", "mcp-apps"],
+  "compatibility": {
+    "platforms": ["darwin"]
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "el-mcp-server",
+    "mcp_config": {
+      "command": "${__dirname}/el-mcp-server"
+    }
+  },
+  "tools": [
+    {
+      "name": "search_device_class",
+      "description": "名前・キーワード・EOJコードでECHONET Lite機器クラスを検索します。EOJは4桁16進(例: 0130)で指定可能。"
+    },
+    {
+      "name": "list_epc",
+      "description": "指定機器クラス(EOJ)のECHONET LiteプロパティコードEPC一覧を返します。EOJは4桁16進(例: 0130)で指定。スーパークラス共通EPCも含みます。"
+    },
+    {
+      "name": "get_epc_detail",
+      "description": "指定機器クラス(EOJ)の特定EPC詳細(データ型・単位・アクセス規則・説明)を返します。"
+    },
+    {
+      "name": "discover_devices",
+      "description": "LAN内のECHONET Lite機器を探索します。UDPマルチキャストでノードプロファイルに問い合わせ、応答した機器のIPアドレスとEOJ一覧を返します。"
+    },
+    {
+      "name": "get_property",
+      "description": "指定したECHONET Lite機器のEPCプロパティ値をUDP Getで取得します。値はhex文字列で返ります。"
+    },
+    {
+      "name": "set_property",
+      "description": "指定したECHONET Lite機器のEPCプロパティ値をUDP SetC(応答あり)で書き込みます。機器の実際の状態を変更する操作です。事前にget_propertyやget_epc_detailで書き込み可能なEPCとEDTの形式を確認してから呼び出してください。"
+    },
+    {
+      "name": "search_certified_products",
+      "description": "ECHONET Lite認証登録製品をechonet.jpで検索します。メーカー名・機種(カテゴリ)・キーワードで絞り込み可能。"
+    },
+    {
+      "name": "render_battery_ui",
+      "description": "指定した蓄電池(EOJ 027Dxx)の現在状態(稼働状態・運転モード・蓄電残量・充放電電力)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。"
+    },
+    {
+      "name": "render_solar_ui",
+      "description": "指定した太陽光発電システム(EOJ 0279xx)の現在状態(稼働状態・瞬時発電電力・積算発電電力量・積算売電電力量・系統連系状態・出力抑制状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。このダッシュボードは読み取り専用です。"
+    },
+    {
+      "name": "render_v2h_ui",
+      "description": "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。"
+    }
+  ]
+}
