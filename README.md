@@ -169,11 +169,7 @@ sequenceDiagram
     S-->>-AI: CallToolResult (JSON)<br/>ダッシュボードを最新状態で再描画
 ```
 
-ダッシュボードの HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。運転モードの選択肢はサーバー側 (`tools/ui/battery_decode.go`) と手動で同期しています。
-
-`render_solar_ui` のダッシュボード(`tools/ui/templates/solar.html`)も上記と同じ postMessage ブリッジ・`ui/initialize` ハンドシェイク・サイズ報告ロジックを使用しますが、住宅用太陽光発電クラスは大半のプロパティが読み取り専用のため `set_property` は呼び出さず、`tools/call render_solar_ui` の結果を表示するだけの読み取り専用ダッシュボードです。積算発電/売電電力量から算出した自家消費率(`self_consumption_percent`)を、蓄電残量ゲージと同じ見た目のゲージで表示します。
-
-`render_v2h_ui` のダッシュボード(`tools/ui/templates/v2h.html`)は蓄電池クラスと同じ操作系構成です。電気自動車充放電器クラス(`027Exx`)は運転モード(EPC `DA`)・充放電電力(EPC `D3`)・電池残容量(EPC `E4`)が蓄電池クラスと同じ EPC 番号・データ形式であるため、稼働状態トグルと運転モードのセレクトから `set_property` → `render_v2h_ui`(再取得)を呼び出す構成をそのまま踏襲しています。ただし運転モードの列挙値は蓄電池クラスと一部異なる(EPC `DA` の `0x46` は蓄電池「自動」/V2H「充放電」、`0x48` は蓄電池「再起動」/V2H「準備」)ため、デコーダー(`tools/ui/v2h_decode.go`)と選択肢はサーバー側で独立させています。
+例えば `render_battery_ui` のダッシュボード HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。`render_solar_ui` / `render_v2h_ui` も同じ postMessage ブリッジ・ハンドシェイクを使いますが、住宅用太陽光発電クラスは大半のプロパティが読み取り専用のため読み取り専用ダッシュボードになっている、V2H は運転モードの列挙値が蓄電池クラスと一部異なるためデコーダー(`tools/ui/v2h_decode.go`)を独立させている、といった機器クラスごとの差分があります。
 
 ## ビルド
 
