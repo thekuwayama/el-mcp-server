@@ -141,7 +141,7 @@ type setPropertyResult struct {
 	Status string `json:"status"`
 }
 
-func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyParams) (*mcp.CallToolResult, any, error) {
+func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPropertyParams) (*mcp.CallToolResult, any, error) {
 	eoj, epcCode, errRes := parseEOJAndEPC(params.EOJ, params.EPC)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -150,6 +150,14 @@ func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyP
 	edt, err := parseHexBytes(params.EDT)
 	if err != nil {
 		return errorResult(fmt.Sprintf("EDTの形式が正しくありません: %s", params.EDT)), nil, nil
+	}
+
+	confirmed, err := confirmPropertyWrite(ctx, req.Session, params.IP, params.EOJ, params.EPC, hexJoin(edt))
+	if err != nil {
+		return errorResult(fmt.Sprintf("書き込み確認エラー: %v", err)), nil, nil
+	}
+	if !confirmed {
+		return textResult("書き込みをキャンセルしました。"), nil, nil
 	}
 
 	if err := echonet.SetProperty(params.IP, eoj, epcCode, edt, 5*time.Second); err != nil {
@@ -163,4 +171,60 @@ func setProperty(_ context.Context, _ *mcp.CallToolRequest, params *setPropertyP
 		EDTHex: hexJoin(edt),
 		Status: "success",
 	})
+}
+
+// confirmPropertyWrite asks the user to confirm a device write via
+// elicitation (SEP-1034 default values) before it is performed, when the
+// connected client advertises support for form elicitation. Clients without
+// elicitation support skip confirmation so existing behavior is unchanged.
+func confirmPropertyWrite(ctx context.Context, session *mcp.ServerSession, ip, eoj, epc, edtHex string) (bool, error) {
+	if !supportsFormElicitation(session) {
+		return true, nil
+	}
+
+	res, err := session.Elicit(ctx, &mcp.ElicitParams{
+		Message: fmt.Sprintf("機器 %s (EOJ %s) の EPC %s に %s を書き込みます。実行しますか？", ip, strings.ToUpper(eoj), strings.ToUpper(epc), edtHex),
+		RequestedSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"confirm": map[string]any{
+					"type":    "boolean",
+					"title":   "実行する",
+					"default": false,
+				},
+			},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	if res.Action != "accept" {
+		return false, nil
+	}
+	confirm, _ := res.Content["confirm"].(bool)
+	return confirm, nil
+}
+
+// supportsFormElicitation reports whether the connected client declared
+// support for form-mode elicitation during initialize.
+func supportsFormElicitation(session *mcp.ServerSession) bool {
+	initParams := session.InitializeParams()
+	if initParams == nil || initParams.Capabilities == nil {
+		return false
+	}
+	return formElicitationSupported(initParams.Capabilities.Elicitation)
+}
+
+// formElicitationSupported implements the same form-support check as
+// (*mcp.ServerSession).Elicit: absent capabilities means no support, and an
+// empty ElicitationCapabilities (both Form and URL nil) is assumed to
+// support form elicitation for backward compatibility.
+func formElicitationSupported(caps *mcp.ElicitationCapabilities) bool {
+	if caps == nil {
+		return false
+	}
+	if caps.Form == nil && caps.URL != nil {
+		return false
+	}
+	return true
 }
