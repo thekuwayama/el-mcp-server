@@ -199,6 +199,18 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 
 登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
 
+## .mcpb バンドル
+
+Claude Desktop など [.mcpb](https://github.com/anthropics/mcpb) MCP Bundle 対応クライアントには、`manifest.json` とビルド済みバイナリを zip にまとめた `.mcpb` ファイルをドラッグ & ドロップ、または「拡張機能を追加」から選択するだけで導入できます。現状 **macOS のみ** 対応です。
+
+Go のビルド環境に加えて、`.mcpb` の pack に使う [`@anthropic-ai/mcpb`](https://github.com/anthropics/mcpb) CLI を `npx` 経由で呼び出すため Node.js が必要です。
+
+```bash
+make mcpb
+```
+
+`mcpb/el-mcp-server.mcpb` が生成されます。これを Claude Desktop 等に読み込ませると、上記と同等の起動設定が自動生成されます。マニフェストの定義は [`mcpb/manifest.json`](mcpb/manifest.json) を参照してください。
+
 ## データソース
 
 - [ECHONET Lite 規格書 Ver.1.14](https://echonet.jp/spec_v114_lite/) — フレーム構造・UDP 通信仕様
