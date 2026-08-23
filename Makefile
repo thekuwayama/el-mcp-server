@@ -1,8 +1,16 @@
-.PHONY: build mcpb clean
+.DEFAULT_GOAL := help
 
+.PHONY: help build mcpb clean
+
+## show this help
+help:
+	@make2help $(MAKEFILE_LIST)
+
+## build the el-mcp-server binary
 build:
 	go build -o el-mcp-server .
 
+## build the .mcpb bundle (macOS only)
 mcpb:
 	@if [ "$$(uname -s)" != "Darwin" ]; then \
 		echo "error: mcpb target supports macOS (darwin) only" >&2; \
@@ -12,5 +20,6 @@ mcpb:
 	npx --yes @anthropic-ai/mcpb pack mcpb mcpb/el-mcp-server.mcpb
 	@echo "==> done: mcpb/el-mcp-server.mcpb"
 
+## remove build artifacts
 clean:
 	rm -rf el-mcp-server mcpb/el-mcp-server mcpb/el-mcp-server.mcpb
