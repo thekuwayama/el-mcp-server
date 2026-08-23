@@ -23,16 +23,16 @@ const (
 	// NodeProfileEOJ is the ECHONET Lite node profile object.
 	NodeProfileEOJ = uint32(0x0EF001)
 
-	UDPPort           = 3610
-	MulticastAddr     = "224.0.23.0"
+	UDPPort       = 3610
+	MulticastAddr = "224.0.23.0"
 )
 
 // Frame represents an ECHONET Lite frame.
 type Frame struct {
-	TID  uint16
-	SEOJ uint32 // 3 bytes used: 0x00GGCCII
-	DEOJ uint32 // 3 bytes used
-	ESV  byte
+	TID   uint16
+	SEOJ  uint32 // 3 bytes used: 0x00GGCCII
+	DEOJ  uint32 // 3 bytes used
+	ESV   byte
 	Props []Property
 }
 
