@@ -1,4 +1,4 @@
-name: mcpb manifest sync
+name: Check .mcpb Manifest
 
 on:
   push:

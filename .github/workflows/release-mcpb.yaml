@@ -1,4 +1,4 @@
-name: release mcpb
+name: Release .mcpb
 
 on:
   workflow_dispatch:

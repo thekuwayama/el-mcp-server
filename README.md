@@ -1,6 +1,6 @@
 # el-mcp-server
 
-[![Actions Status](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml/badge.svg)](https://github.com/thekuwayama/el-mcp-server/actions/workflows/build.yaml)
+[![Actions Status](https://github.com/thekuwayama/el-mcp-server/actions/workflows/ci.yaml/badge.svg)](https://github.com/thekuwayama/el-mcp-server/actions/workflows/ci.yaml)
 [![ECHONET Lite MRA](https://img.shields.io/badge/ECHONET_Lite_MRA-v1.4.0-blue)](https://echonet.jp/spec_mra_rr3/)
 [![license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE.txt)
 
