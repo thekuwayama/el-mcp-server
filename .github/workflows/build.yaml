@@ -22,4 +22,4 @@ jobs:
 
       - run: go build -o el-mcp-server .
 
-      - run: go build ./cmd/update-mra ./cmd/gen-manufacturers
+      - run: go build ./cmd/update-mra ./cmd/gen-manufacturers ./cmd/gen-mcpb-manifest
