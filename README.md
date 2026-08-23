@@ -135,7 +135,7 @@ sequenceDiagram
     Note over AI,S: MCP プロトコル (stdio / HTTP)
 
     AI->>+S: tools/call search_certified_products
-    S->>+W: HTTP POST /product/echonet-lite/<br/>（検索フォームパラメータ）
+    S->>+W: HTTP GET /product/echonet-lite/<br/>（con_manufacturer / con_product_type / pro_num）
     W-->>-S: HTML レスポンス
     Note over S: HTML をパースして製品一覧を抽出
     S-->>-AI: 製品名・メーカー・認証番号 等
@@ -201,15 +201,7 @@ claude mcp add el-mcp-server -- /path/to/el-mcp-server
 
 ## .mcpb バンドル
 
-Claude Desktop など [.mcpb](https://github.com/anthropics/mcpb) MCP Bundle 対応クライアントには、`manifest.json` とビルド済みバイナリを zip にまとめた `.mcpb` ファイルをドラッグ & ドロップ、または「拡張機能を追加」から選択するだけで導入できます。現状 **macOS のみ** 対応です。
-
-Go のビルド環境に加えて、`.mcpb` の pack に使う [`@anthropic-ai/mcpb`](https://github.com/anthropics/mcpb) CLI を `npx` 経由で呼び出すため Node.js が必要です。
-
-```bash
-make mcpb
-```
-
-`mcpb/el-mcp-server.mcpb` が生成されます。これを Claude Desktop 等に読み込ませると、上記と同等の起動設定が自動生成されます。マニフェストの定義は [`mcpb/manifest.json`](mcpb/manifest.json) を参照してください。
+Claude Desktop など [.mcpb](https://github.com/anthropics/mcpb) MCP Bundle 対応クライアントには、[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、ドラッグ & ドロップ、または「拡張機能を追加」から選択するだけで導入できます。現状 **macOS のみ** 対応です。
 
 ## データソース
 
@@ -229,4 +221,4 @@ make mcpb
 - 認証機構を実装していません。[MCP の Authorization 仕様](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)では、認証をサポートする場合、HTTP ベーストランスポートの実装は OAuth 2.1 ベースの同仕様に準拠すべき（SHOULD）とされていますが、本サーバーは未対応です。HTTP モードは信頼できるネットワーク内でのみ使用してください
 - 機器への書き込みは `set_property`（SetC）のみ対応しています。SetI（応答なしの書き込み）は未実装です
 - `set_property` は機器の実際の状態（運転モード・温度設定など）を変更します。呼び出し前に対象 EPC が書き込み可能か、EDT が正しい形式かを `get_epc_detail` で確認してください
-- `search_certified_products` の検索パラメータは echonet.jp のフォーム仕様に依存するため、絞り込みが効かない場合があります
+- `search_certified_products` の `keyword` は echonet.jp に server 側でクエリを渡して絞り込みますが、`maker` / `category` は echonet.jp 側が確実に絞り込まないため、取得した結果をクライアント側で再フィルタしています。最大 5 ページ（60 件）分しか走査しないため、該当件数が多いカテゴリでは一致する製品でも取得できない場合があります
