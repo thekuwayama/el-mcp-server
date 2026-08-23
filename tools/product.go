@@ -15,6 +15,12 @@ import (
 
 const productSearchURL = "https://echonet.jp/product/echonet-lite/"
 
+// maxScanPages bounds how many result pages (12 products/page) are fetched
+// while collecting up to `limit` matches for maker/category filters that
+// echonet.jp's own query parameters (con_manufacturer / con_product_type) do
+// not reliably apply server-side (see fetchProductPage).
+const maxScanPages = 5
+
 func registerProductTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_certified_products",
@@ -31,11 +37,11 @@ type searchCertifiedProductsParams struct {
 }
 
 type certifiedProduct struct {
-	Name       string `json:"name"`
-	Maker      string `json:"maker"`
-	CertNumber string `json:"cert_number"`
+	Name        string `json:"name"`
+	Maker       string `json:"maker"`
+	CertNumber  string `json:"cert_number"`
 	AppendixVer string `json:"appendix_version,omitempty"`
-	CertDate   string `json:"cert_date,omitempty"`
+	CertDate    string `json:"cert_date,omitempty"`
 }
 
 func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *searchCertifiedProductsParams) (*mcp.CallToolResult, any, error) {
@@ -47,14 +53,9 @@ func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *
 		limit = 100
 	}
 
-	body, err := fetchProductPage(params.Maker, params.Category, params.Keyword, limit)
+	products, err := collectProducts(params.Maker, params.Category, params.Keyword, limit)
 	if err != nil {
-		return errorResult(fmt.Sprintf("製品ページ取得エラー: %v", err)), nil, nil
-	}
-
-	products, err := parseProductHTML(body, limit)
-	if err != nil {
-		return errorResult(fmt.Sprintf("HTMLパースエラー: %v", err)), nil, nil
+		return errorResult(fmt.Sprintf("製品検索エラー: %v", err)), nil, nil
 	}
 
 	if len(products) == 0 {
@@ -63,26 +64,85 @@ func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *
 	return jsonResult(products)
 }
 
-func fetchProductPage(maker, category, keyword string, limit int) (string, error) {
-	perPage := limit
-	if perPage > 48 {
-		perPage = 48
+// collectProducts fetches search result pages until `limit` matching
+// products are collected or maxScanPages is exhausted. echonet.jp's search
+// form only reliably filters by keyword (pro_num) server-side; maker and
+// category are additionally filtered client-side against the parsed results
+// so the tool still narrows results even when the site ignores those query
+// parameters.
+func collectProducts(maker, category, keyword string, limit int) ([]certifiedProduct, error) {
+	var results []certifiedProduct
+	for page := 1; page <= maxScanPages && len(results) < limit; page++ {
+		body, err := fetchProductPage(page, maker, category, keyword)
+		if err != nil {
+			return nil, err
+		}
+
+		raw, err := parseProductHTML(body, 100)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) == 0 {
+			break
+		}
+
+		for _, p := range raw {
+			if !matchesFilter(p, maker, category) {
+				continue
+			}
+			results = append(results, p)
+			if len(results) >= limit {
+				break
+			}
+		}
+	}
+	return results, nil
+}
+
+func matchesFilter(p certifiedProduct, maker, category string) bool {
+	if maker != "" && !containsFold(p.Maker, maker) {
+		return false
+	}
+	if category != "" && !containsFold(p.Name, category) {
+		return false
+	}
+	return true
+}
+
+func containsFold(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// fetchProductPage issues a GET request against echonet.jp's product search
+// form (method="get", action="https://echonet.jp/product/echonet-lite/"),
+// matching its actual field names: con_manufacturer (maker), con_product_type
+// (category), pro_num (keyword, despite the name). Pagination uses the
+// site's own /page/N/ path segment; there is no per-page-count parameter.
+func buildProductPageURL(page int, maker, category, keyword string) string {
+	reqURL := productSearchURL
+	if page > 1 {
+		reqURL = fmt.Sprintf("%spage/%d/", productSearchURL, page)
 	}
 
-	form := url.Values{}
+	q := url.Values{}
 	if maker != "" {
-		form.Set("maker", maker)
+		q.Set("con_manufacturer", maker)
 	}
 	if category != "" {
-		form.Set("category", category)
+		q.Set("con_product_type", category)
 	}
 	if keyword != "" {
-		form.Set("keyword", keyword)
+		q.Set("pro_num", keyword)
 	}
-	form.Set("per_page", fmt.Sprintf("%d", perPage))
+	if len(q) > 0 {
+		reqURL += "?" + q.Encode()
+	}
+	return reqURL
+}
 
+func fetchProductPage(page int, maker, category, keyword string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.PostForm(productSearchURL, form)
+	resp, err := client.Get(buildProductPageURL(page, maker, category, keyword))
 	if err != nil {
 		return "", err
 	}
