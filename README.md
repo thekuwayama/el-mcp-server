@@ -65,6 +65,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
 | `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/solar` リソースをダッシュボード UI として表示。仕様上ほとんどのプロパティが読み取り専用のため、`render_battery_ui` と異なり操作系のコントロールは持たない読み取り専用ダッシュボード |
 | `render_v2h_ui` | V2H(電気自動車充放電器、EOJ `027Exx`)の稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/v2h` リソースをダッシュボード UI として表示。運転モード(EPC `DA`)・充放電電力(EPC `D3`)・電池残容量(EPC `E4`)は蓄電池クラスと同じ EPC 番号・データ形式のため、`render_battery_ui` と同様に稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能。ただし運転モードの列挙値は蓄電池クラスと一部異なる（`tools/ui/v2h_decode.go` 参照） |
+| `render_aircon_ui` | 家庭用エアコン(EOJ `0130xx`)の稼働状態・運転モード・設定温度・室内温度・風量設定を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/aircon` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグル・運転モード/風量のセレクト・設定温度の増減ボタンから `set_property` を呼び出して機器を操作可能 |
 
 MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 
@@ -143,7 +144,7 @@ sequenceDiagram
 
 ### UI 表示（MCP Apps）
 
-`render_battery_ui` / `render_solar_ui` / `render_v2h_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。返す JSON（`structuredContent`）は 3 ツールで命名規則（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）を揃えており、対応する HTML（`tools/ui/templates/battery.html` / `solar.html` / `v2h.html`）も見出し→ゲージ→プロパティ一覧という同じ構造を共有しています。
+`render_battery_ui` / `render_solar_ui` / `render_v2h_ui` / `render_aircon_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。返す JSON（`structuredContent`）は各ツールで命名規則（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）を揃えており、対応する HTML（`tools/ui/templates/battery.html` / `solar.html` / `v2h.html` / `aircon.html`）も見出し→ゲージ・数値→プロパティ一覧という同じ構造を共有しています。
 
 ```mermaid
 sequenceDiagram
