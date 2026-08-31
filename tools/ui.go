@@ -23,10 +23,14 @@ var v2hDashboardHTML string
 //go:embed ui/templates/aircon.html
 var airconDashboardHTML string
 
+//go:embed ui/templates/smartmeter.html
+var smartmeterDashboardHTML string
+
 const batteryDashboardURI = "ui://el-mcp-server/battery"
 const solarDashboardURI = "ui://el-mcp-server/solar"
 const v2hDashboardURI = "ui://el-mcp-server/v2h"
 const airconDashboardURI = "ui://el-mcp-server/aircon"
+const smartmeterDashboardURI = "ui://el-mcp-server/smartmeter"
 
 // MCPAppsUIMimeType is the MIME type required by the MCP Apps extension
 // (SEP-1865) for ui:// resources.
@@ -164,6 +168,24 @@ func registerUITools(s *mcp.Server) {
 			},
 		},
 	}, renderAirconUI)
+
+	s.AddResource(&mcp.Resource{
+		URI:      smartmeterDashboardURI,
+		Name:     "smartmeter_dashboard",
+		Title:    "スマートメーターダッシュボード",
+		MIMEType: MCPAppsUIMimeType,
+	}, dashboardResourceHandler(smartmeterDashboardHTML))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "render_smartmeter_ui",
+		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。仕様上ほとんどのプロパティが読み取り専用のため、このダッシュボードは操作系のコントロールを持たない読み取り専用ダッシュボードです。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": smartmeterDashboardURI,
+			},
+		},
+	}, renderSmartmeterUI)
 }
 
 type renderBatteryUIParams struct {
@@ -335,6 +357,57 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.TargetTemperature == nil &&
 		state.RoomTemperature == nil && state.AirFlowLevel == "" {
 		return errorResult(fmt.Sprintf("エアコン(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
+	}
+
+	return jsonResult(state)
+}
+
+type renderSmartmeterUIParams struct {
+	IP  string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
+	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
+}
+
+type smartmeterUIState struct {
+	IP                   string   `json:"ip"`
+	EOJ                  string   `json:"eoj"`
+	OperatingStatus      string   `json:"operating_status,omitempty"`
+	InstantaneousPowerW  *int32   `json:"instantaneous_power_w,omitempty"`
+	InstantaneousRPhaseA *float64 `json:"instantaneous_r_phase_a,omitempty"`
+	InstantaneousTPhaseA *float64 `json:"instantaneous_t_phase_a,omitempty"`
+	CumulativeEnergyKWh  *float64 `json:"cumulative_energy_kwh,omitempty"`
+}
+
+func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSmartmeterUIParams) (*mcp.CallToolResult, any, error) {
+	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_smartmeter_ui", "低圧スマート電力量メータ(EOJ 0288xx)", 0x02, 0x88)
+	if errRes != nil {
+		return errRes, nil, nil
+	}
+
+	const timeout = 5 * time.Second
+
+	state := smartmeterUIState{
+		IP:                  params.IP,
+		EOJ:                 fmt.Sprintf("%06X", eoj),
+		OperatingStatus:     getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		InstantaneousPowerW: getPtr(params.IP, eoj, ui.InstantaneousElectricPowerEPC, timeout, ui.DecodeInstantaneousPowerW),
+	}
+
+	if currents := getPtr(params.IP, eoj, ui.InstantaneousCurrentsEPC, timeout, ui.DecodeInstantaneousCurrents); currents != nil {
+		state.InstantaneousRPhaseA = &currents.RPhaseA
+		state.InstantaneousTPhaseA = &currents.TPhaseA
+	}
+
+	rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy)
+	unitFactor := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyUnitEPC, timeout, ui.DecodeEnergyUnit)
+	if rawEnergy != nil && unitFactor != nil {
+		coefficient := getPtr(params.IP, eoj, ui.CoefficientEPC, timeout, ui.DecodeCoefficient)
+		kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
+		state.CumulativeEnergyKWh = &kwh
+	}
+
+	if state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.InstantaneousRPhaseA == nil &&
+		state.CumulativeEnergyKWh == nil {
+		return errorResult(fmt.Sprintf("低圧スマート電力量メータ(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 
 	return jsonResult(state)
