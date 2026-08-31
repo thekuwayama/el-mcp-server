@@ -25,10 +25,10 @@ import (
 	"time"
 )
 
-// device class EOJ codes to include (current 14 classes)
+// device class EOJ codes to include (current 15 classes)
 var targetDevices = []string{
 	"0x0011", "0x0012", "0x001B", "0x0130",
-	"0x026B", "0x0279", "0x027C", "0x027D",
+	"0x026B", "0x0272", "0x0279", "0x027C", "0x027D",
 	"0x027E", "0x0287", "0x0288", "0x0290", "0x02A1",
 }
 
