@@ -20,9 +20,13 @@ var solarDashboardHTML string
 //go:embed ui/templates/v2h.html
 var v2hDashboardHTML string
 
+//go:embed ui/templates/aircon.html
+var airconDashboardHTML string
+
 const batteryDashboardURI = "ui://el-mcp-server/battery"
 const solarDashboardURI = "ui://el-mcp-server/solar"
 const v2hDashboardURI = "ui://el-mcp-server/v2h"
+const airconDashboardURI = "ui://el-mcp-server/aircon"
 
 // MCPAppsUIMimeType is the MIME type required by the MCP Apps extension
 // (SEP-1865) for ui:// resources.
@@ -142,6 +146,24 @@ func registerUITools(s *mcp.Server) {
 			},
 		},
 	}, renderV2HUI)
+
+	s.AddResource(&mcp.Resource{
+		URI:      airconDashboardURI,
+		Name:     "aircon_dashboard",
+		Title:    "エアコンダッシュボード",
+		MIMEType: MCPAppsUIMimeType,
+	}, dashboardResourceHandler(airconDashboardHTML))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "render_aircon_ui",
+		Description: "指定した家庭用エアコン(EOJ 0130xx)の現在状態(稼働状態・運転モード・設定温度・室内温度・風量設定)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替え・運転モードの変更・設定温度の増減・風量の変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Meta: mcp.Meta{
+			"ui": map[string]any{
+				"resourceUri": airconDashboardURI,
+			},
+		},
+	}, renderAirconUI)
 }
 
 type renderBatteryUIParams struct {
@@ -272,6 +294,47 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 		state.ChargeDischargePowerW == nil && state.CumulativeChargingKWh == nil &&
 		state.CumulativeDischargingKWh == nil && state.VehicleConnectionStatus == "" {
 		return errorResult(fmt.Sprintf("V2H(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
+	}
+
+	return jsonResult(state)
+}
+
+type renderAirconUIParams struct {
+	IP  string `json:"ip"  jsonschema:"家庭用エアコンのIPアドレス。例: 192.168.1.50"`
+	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、家庭用エアコンクラス0130のみ対応)。例: 013001"`
+}
+
+type airconUIState struct {
+	IP                string `json:"ip"`
+	EOJ               string `json:"eoj"`
+	OperatingStatus   string `json:"operating_status,omitempty"`
+	OperationMode     string `json:"operation_mode,omitempty"`
+	TargetTemperature *int   `json:"target_temperature,omitempty"`
+	RoomTemperature   *int   `json:"room_temperature,omitempty"`
+	AirFlowLevel      string `json:"air_flow_level,omitempty"`
+}
+
+func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAirconUIParams) (*mcp.CallToolResult, any, error) {
+	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_aircon_ui", "家庭用エアコン(EOJ 0130xx)", 0x01, 0x30)
+	if errRes != nil {
+		return errRes, nil, nil
+	}
+
+	const timeout = 5 * time.Second
+
+	state := airconUIState{
+		IP:                params.IP,
+		EOJ:               fmt.Sprintf("%06X", eoj),
+		OperatingStatus:   getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		OperationMode:     getString(params.IP, eoj, ui.AirconOperationModeEPC, timeout, ui.DecodeAirconOperationMode),
+		TargetTemperature: getPtr(params.IP, eoj, ui.TargetTemperatureEPC, timeout, ui.DecodeTargetTemperature),
+		RoomTemperature:   getPtr(params.IP, eoj, ui.RoomTemperatureEPC, timeout, ui.DecodeRoomTemperature),
+		AirFlowLevel:      getString(params.IP, eoj, ui.AirFlowLevelEPC, timeout, ui.DecodeAirFlowLevel),
+	}
+
+	if state.OperatingStatus == "" && state.OperationMode == "" && state.TargetTemperature == nil &&
+		state.RoomTemperature == nil && state.AirFlowLevel == "" {
+		return errorResult(fmt.Sprintf("エアコン(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 
 	return jsonResult(state)
