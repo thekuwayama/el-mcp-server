@@ -184,6 +184,23 @@ go install github.com/thekuwayama/el-mcp-server@latest
 
 バイナリは `$(go env GOPATH)/bin/el-mcp-server` に配置されます。更新するときは同じコマンドを再実行してください。
 
+### Claude Code
+
+```bash
+claude mcp add -s user el-mcp-server -- "$(go env GOPATH)/bin/el-mcp-server"
+```
+
+- `-s user` は、どのディレクトリで Claude Code を起動しても使えるユーザースコープです。省略すると、コマンドを実行したディレクトリ専用の Local スコープになります
+- 登録内容と接続状態は `claude mcp get el-mcp-server` で確認できます
+
+### Claude Desktop
+
+[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、Claude Desktop にドラッグ & ドロップ、または「拡張機能を追加」から選択してください。現状 **macOS のみ** 対応です。
+
+- `.mcpb` は [MCP Bundle](https://github.com/anthropics/mcpb) 形式のため、Claude Desktop 以外の `.mcpb` 対応クライアントでも同じ手順で導入できます
+
+登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
+
 ### 開発者向け（ソースからビルド）
 
 ```bash
@@ -196,7 +213,7 @@ make build
 go install .
 ```
 
-## 起動
+#### 起動
 
 stdio モード（デフォルト）
 
@@ -209,23 +226,6 @@ HTTP モード（Streamable HTTP）
 ```bash
 el-mcp-server -transport http -addr :8080
 ```
-
-## Claude Code への登録
-
-```bash
-claude mcp add -s user el-mcp-server -- "$(go env GOPATH)/bin/el-mcp-server"
-```
-
-- `-s user` は、どのディレクトリで Claude Code を起動しても使えるユーザースコープです。省略すると、コマンドを実行したディレクトリ専用の Local スコープになります
-- 登録内容と接続状態は `claude mcp get el-mcp-server` で確認できます
-
-## Claude Desktop への登録
-
-[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、Claude Desktop にドラッグ & ドロップ、または「拡張機能を追加」から選択してください。現状 **macOS のみ** 対応です。
-
-- `.mcpb` は [MCP Bundle](https://github.com/anthropics/mcpb) 形式のため、Claude Desktop 以外の `.mcpb` 対応クライアントでも同じ手順で導入できます
-
-登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
 
 ## データソース
 
