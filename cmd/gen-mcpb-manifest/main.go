@@ -5,11 +5,17 @@
 // Run from the repository root:
 //
 //	go run ./cmd/gen-mcpb-manifest
+//
+// With -platform, it instead writes a per-platform manifest to -o (leaving
+// mcpb/manifest.json untouched), for packing one .mcpb bundle per platform:
+//
+//	go run ./cmd/gen-mcpb-manifest -platform win32 -o mcpb/build/windows_amd64/manifest.json
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
@@ -18,6 +24,13 @@ import (
 )
 
 const manifestPath = "mcpb/manifest.json"
+
+// binaryNames maps a .mcpb platform (Node's process.platform value, as used by
+// compatibility.platforms) to the server binary name bundled for it.
+var binaryNames = map[string]string{
+	"darwin": "el-mcp-server",
+	"win32":  "el-mcp-server.exe",
+}
 
 // manifest mirrors the field order of mcpb/manifest.json so re-marshaling
 // keeps the file's structure stable; only Tools is regenerated.
@@ -68,6 +81,24 @@ type manifestTool struct {
 }
 
 func main() {
+	platform := flag.String("platform", "", "write a per-platform manifest for this .mcpb platform (darwin or win32)")
+	outPath := flag.String("o", "", "output path for the per-platform manifest (required with -platform)")
+	flag.Parse()
+
+	binaryName := ""
+	if *platform != "" {
+		var ok bool
+		binaryName, ok = binaryNames[*platform]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "error: unsupported -platform %q (want darwin or win32)\n", *platform)
+			os.Exit(1)
+		}
+		if *outPath == "" {
+			fmt.Fprintln(os.Stderr, "error: -o is required with -platform")
+			os.Exit(1)
+		}
+	}
+
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -87,6 +118,14 @@ func main() {
 	}
 	m.Tools = registeredTools
 
+	dest := manifestPath
+	if *platform != "" {
+		m.Compatibility.Platforms = []string{*platform}
+		m.Server.EntryPoint = binaryName
+		m.Server.MCPConfig.Command = "${__dirname}/" + binaryName
+		dest = *outPath
+	}
+
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -94,12 +133,12 @@ func main() {
 	}
 	out = append(out, '\n')
 
-	if err := os.WriteFile(manifestPath, out, 0o644); err != nil {
+	if err := os.WriteFile(dest, out, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("%d tools written to %s\n", len(m.Tools), manifestPath)
+	fmt.Printf("%d tools written to %s\n", len(m.Tools), dest)
 }
 
 // listRegisteredTools spins up the real server and an in-memory client to
