@@ -1,0 +1,23 @@
+{
+  "manifest_version": "0.3",
+  "name": "el-mcp-server",
+  "display_name": "el-mcp-server",
+  "version": "0.1.0",
+  "description": "ECHONET Lite の情報を AI から利用可能にする MCP サーバー",
+  "long_description": "ECHONET Lite Appendix (MRA) の仕様検索、同一 LAN 上の ECHONET Lite 機器との UDP 通信、echonet.jp の認証登録製品検索、MCP Apps 対応クライアント向けの機器ダッシュボード UI 表示を提供します。set_property および render_battery_ui / render_v2h_ui のダッシュボード操作は機器の実際の状態(運転モード・稼働状態など)を変更するため、実行前に get_epc_detail で書き込み可否と EDT の形式を確認してください。",
+  "author": {
+    "name": "thekuwayama",
+    "url": "https://github.com/thekuwayama"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thekuwayama/el-mcp-server"
+  },
+  "homepage": "https://github.com/thekuwayama/el-mcp-server",
+  "keywords": [
+    "echonet-lite",
+    "smart-home",
+    "mcp-apps"
+  ]
+}
