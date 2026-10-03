@@ -204,7 +204,7 @@ claude mcp add -s user el-mcp-server -- "$(go env GOPATH)/bin/el-mcp-server"
 ### 開発者向け（ソースからビルド）
 
 ```bash
-git clone https://github.com/thekuwayama/el-mcp-server.git
+git clone git@github.com:thekuwayama/el-mcp-server.git
 
 cd el-mcp-server
 
