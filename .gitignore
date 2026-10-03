@@ -1,4 +1,4 @@
 .DS_Store
 /el-mcp-server
-/mcpb/el-mcp-server
-/mcpb/el-mcp-server.mcpb
+/mcpb/build/
+/mcpb/*.mcpb

@@ -1,15 +1,19 @@
-// gen-mcpb-manifest regenerates the "tools" array of mcpb/manifest.json from
-// the tools actually registered by tools.Register, so the .mcpb bundle's
-// advertised tool list can't drift from the server implementation.
+// gen-mcpb-manifest generates a per-platform .mcpb manifest from
+// mcpb/manifest.template.json. The template holds only the platform-independent
+// metadata; compatibility, server and tools are filled in here, with tools taken
+// from what tools.Register actually registers so the bundle's advertised tool
+// list can't drift from the server implementation.
 //
 // Run from the repository root:
 //
-//	go run ./cmd/gen-mcpb-manifest
+//	go run ./cmd/gen-mcpb-manifest -platform darwin -o mcpb/build/darwin_arm64/manifest.json
+//	go run ./cmd/gen-mcpb-manifest -platform win32 -o mcpb/build/windows_amd64/manifest.json
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
@@ -17,10 +21,17 @@ import (
 	"github.com/thekuwayama/el-mcp-server/tools"
 )
 
-const manifestPath = "mcpb/manifest.json"
+const templatePath = "mcpb/manifest.template.json"
 
-// manifest mirrors the field order of mcpb/manifest.json so re-marshaling
-// keeps the file's structure stable; only Tools is regenerated.
+// binaryNames maps a .mcpb platform (Node's process.platform value, as used by
+// compatibility.platforms) to the server binary name bundled for it.
+var binaryNames = map[string]string{
+	"darwin": "el-mcp-server",
+	"win32":  "el-mcp-server.exe",
+}
+
+// manifest mirrors the field order of the .mcpb manifest. Fields up to Keywords
+// come from the template; Compatibility, Server and Tools are generated.
 type manifest struct {
 	ManifestVersion string         `json:"manifest_version"`
 	Name            string         `json:"name"`
@@ -68,7 +79,21 @@ type manifestTool struct {
 }
 
 func main() {
-	raw, err := os.ReadFile(manifestPath)
+	platform := flag.String("platform", "", ".mcpb platform to generate the manifest for (darwin or win32)")
+	outPath := flag.String("o", "", "output path for the generated manifest")
+	flag.Parse()
+
+	binaryName, ok := binaryNames[*platform]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: -platform must be darwin or win32 (got %q)\n", *platform)
+		os.Exit(1)
+	}
+	if *outPath == "" {
+		fmt.Fprintln(os.Stderr, "error: -o is required")
+		os.Exit(1)
+	}
+
+	raw, err := os.ReadFile(templatePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -76,7 +101,7 @@ func main() {
 
 	var m manifest
 	if err := json.Unmarshal(raw, &m); err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing %s: %v\n", manifestPath, err)
+		fmt.Fprintf(os.Stderr, "error: parsing %s: %v\n", templatePath, err)
 		os.Exit(1)
 	}
 
@@ -84,6 +109,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	m.Compatibility = compatibility{Platforms: []string{*platform}}
+	m.Server = serverConfig{
+		Type:       "binary",
+		EntryPoint: binaryName,
+		MCPConfig:  mcpConfig{Command: "${__dirname}/" + binaryName},
 	}
 	m.Tools = registeredTools
 
@@ -94,12 +126,12 @@ func main() {
 	}
 	out = append(out, '\n')
 
-	if err := os.WriteFile(manifestPath, out, 0o644); err != nil {
+	if err := os.WriteFile(*outPath, out, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("%d tools written to %s\n", len(m.Tools), manifestPath)
+	fmt.Printf("%d tools written to %s\n", len(m.Tools), *outPath)
 }
 
 // listRegisteredTools spins up the real server and an in-memory client to

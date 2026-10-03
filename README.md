@@ -195,8 +195,14 @@ claude mcp add -s user el-mcp-server -- "$(go env GOPATH)/bin/el-mcp-server"
 
 ### Claude Desktop
 
-[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、Claude Desktop にドラッグ & ドロップ、または「拡張機能を追加」から選択してください。現状 **macOS のみ** 対応です。
+[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から、お使いの環境に合った `.mcpb` をダウンロードし、Claude Desktop にドラッグ & ドロップ、または「拡張機能を追加」から選択してください。
 
+| 環境 | ファイル |
+|---|---|
+| macOS（Apple Silicon） | `el-mcp-server_<version>_darwin_arm64.mcpb` |
+| Windows（x64） | `el-mcp-server_<version>_windows_amd64.mcpb` |
+
+- Windows では、機器の探索・通信に UDP 3610 番ポートを使用するため、初回起動時に Windows Defender ファイアウォールで通信を許可する必要があります。なお、Windows での動作確認は限定的です
 - `.mcpb` は [MCP Bundle](https://github.com/anthropics/mcpb) 形式のため、Claude Desktop 以外の `.mcpb` 対応クライアントでも同じ手順で導入できます
 
 登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。

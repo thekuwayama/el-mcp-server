@@ -2,6 +2,12 @@
 
 .PHONY: help build test mcpb clean
 
+# release version embedded in .mcpb file names (JST date, same as the release tag)
+VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
+
+# .mcpb targets as GOOS/GOARCH/mcpb-platform
+MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
+
 ## show this help
 help:
 	@make2help $(MAKEFILE_LIST)
@@ -14,16 +20,20 @@ build:
 test:
 	go test ./...
 
-## build the .mcpb bundle (macOS only)
+## cross-build the .mcpb bundles (darwin_arm64, windows_amd64)
 mcpb:
-	@if [ "$$(uname -s)" != "Darwin" ]; then \
-		echo "error: mcpb target supports macOS (darwin) only" >&2; \
-		exit 1; \
-	fi
-	go build -o mcpb/el-mcp-server .
-	npx --yes @anthropic-ai/mcpb pack mcpb mcpb/el-mcp-server.mcpb
-	@echo "==> done: mcpb/el-mcp-server.mcpb"
+	@set -e; for t in $(MCPB_TARGETS); do \
+		goos=$${t%%/*}; rest=$${t#*/}; goarch=$${rest%%/*}; platform=$${rest#*/}; \
+		dir=mcpb/build/$${goos}_$${goarch}; \
+		bin=el-mcp-server; if [ "$$goos" = windows ]; then bin=el-mcp-server.exe; fi; \
+		out=mcpb/el-mcp-server_$(VERSION)_$${goos}_$${goarch}.mcpb; \
+		echo "==> $$out"; \
+		rm -rf $$dir; mkdir -p $$dir; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch go build -o $$dir/$$bin .; \
+		go run ./cmd/gen-mcpb-manifest -platform $$platform -o $$dir/manifest.json; \
+		npx --yes @anthropic-ai/mcpb pack $$dir $$out; \
+	done
 
 ## remove build artifacts
 clean:
-	rm -rf el-mcp-server mcpb/el-mcp-server mcpb/el-mcp-server.mcpb
+	rm -rf el-mcp-server mcpb/build mcpb/*.mcpb
