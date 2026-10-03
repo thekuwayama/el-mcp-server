@@ -174,33 +174,58 @@ sequenceDiagram
 
 例えば `render_battery_ui` のダッシュボード HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。`render_solar_ui` / `render_v2h_ui` も同じ postMessage ブリッジ・ハンドシェイクを使いますが、住宅用太陽光発電クラスは大半のプロパティが読み取り専用のため読み取り専用ダッシュボードになっている、V2H は運転モードの列挙値が蓄電池クラスと一部異なるためデコーダー(`tools/ui/v2h_decode.go`)を独立させている、といった機器クラスごとの差分があります。
 
-## ビルド
+## インストール
+
+Go 1.26 以上が必要です。
 
 ```bash
-go build -o el-mcp-server .
+go install github.com/thekuwayama/el-mcp-server@latest
+```
+
+バイナリは `$(go env GOPATH)/bin/el-mcp-server` に配置されます。更新するときは同じコマンドを再実行してください。
+
+### 開発者向け（ソースからビルド）
+
+```bash
+git clone https://github.com/thekuwayama/el-mcp-server.git
+
+cd el-mcp-server
+
+make build
+
+go install .
 ```
 
 ## 起動
 
-```bash
-# stdio モード（デフォルト）
-./el-mcp-server
+stdio モード（デフォルト）
 
-# HTTP モード（Streamable HTTP）
-./el-mcp-server -transport http -addr :8080
+```bash
+el-mcp-server
+```
+
+HTTP モード（Streamable HTTP）
+
+```bash
+el-mcp-server -transport http -addr :8080
 ```
 
 ## Claude Code への登録
 
 ```bash
-claude mcp add el-mcp-server -- /path/to/el-mcp-server/mcpb/el-mcp-server
+claude mcp add -s user el-mcp-server -- "$(go env GOPATH)/bin/el-mcp-server"
 ```
 
+- `-s user` は、どのディレクトリで Claude Code を起動しても使えるユーザースコープです。省略すると、コマンドを実行したディレクトリ専用の Local スコープになります
+- 登録内容と接続状態は `claude mcp get el-mcp-server` で確認できます
+
+## Claude Desktop への登録
+
+[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、Claude Desktop にドラッグ & ドロップ、または「拡張機能を追加」から選択してください。現状 **macOS のみ** 対応です。
+
+- `.mcpb` は [MCP Bundle](https://github.com/anthropics/mcpb) 形式のため、Claude Desktop 以外の `.mcpb` 対応クライアントでも同じ手順で導入できます
+
 登録後、Claude に「LAN 内の ECHONET Lite 機器を探して」「スマートメーターの EPC 一覧を教えて」「192.168.1.50 の蓄電池を UI 表示して」「192.168.1.60 の太陽光発電を UI 表示して」「192.168.1.70 の V2H を UI 表示して」「192.168.1.100 のエアコンの運転モードを冷房にして」のように話しかけると各ツールが呼び出されます。
-
-## .mcpb バンドル
-
-Claude Desktop など [.mcpb](https://github.com/anthropics/mcpb) MCP Bundle 対応クライアントには、[Releases](https://github.com/thekuwayama/el-mcp-server/releases) から `el-mcp-server.mcpb` をダウンロードし、ドラッグ & ドロップ、または「拡張機能を追加」から選択するだけで導入できます。現状 **macOS のみ** 対応です。
 
 ## データソース
 
