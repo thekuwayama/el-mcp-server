@@ -6,6 +6,7 @@
 //
 // Run from the repository root:
 //
+//	go run ./cmd/gen-mcpb-manifest -platform darwin -o mcpb/build/darwin_arm64/manifest.json
 //	go run ./cmd/gen-mcpb-manifest -platform win32 -o mcpb/build/windows_amd64/manifest.json
 package main
 
