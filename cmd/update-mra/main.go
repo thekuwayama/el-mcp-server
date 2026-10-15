@@ -28,8 +28,18 @@ import (
 // device class EOJ codes to include (current 15 classes)
 var targetDevices = []string{
 	"0x0011", "0x0012", "0x001B", "0x0130",
-	"0x026B", "0x0272", "0x0279", "0x027C", "0x027D",
-	"0x027E", "0x0287", "0x0288", "0x0290", "0x02A1",
+	"0x026B", "0x0272", "0x0279", "0x027B", "0x027C",
+	"0x027D", "0x027E", "0x0287", "0x0288", "0x0290",
+	"0x02A1",
+}
+
+// node profile, super class, definitions, metadata
+// (path inside the MRA root → file name in destDir)
+var extraFiles = map[string]string{
+	"nodeProfile/0x0EF0.json":      "0x0EF0.json",
+	"superClass/0x0000.json":       "0x0000.json",
+	"definitions/definitions.json": "definitions.json",
+	"metaData.json":                "metaData.json",
 }
 
 const destDir = "echonet/spec/mra"
@@ -47,10 +57,17 @@ func main() {
 	if cur, err := os.ReadFile(versionFile); err == nil {
 		lines := strings.SplitN(strings.TrimSpace(string(cur)), "\n", 2)
 		if lines[0] == version {
-			fmt.Printf("already up to date: %s\n", version)
-			return
+			// A target added to targetDevices has no file yet; fetch it even
+			// though the version is unchanged.
+			missing := missingFiles()
+			if len(missing) == 0 {
+				fmt.Printf("already up to date: %s\n", version)
+				return
+			}
+			fmt.Printf("current: %s, but missing: %s → re-fetching\n", version, strings.Join(missing, ", "))
+		} else {
+			fmt.Printf("current: %s → updating to: %s\n", lines[0], version)
 		}
-		fmt.Printf("current: %s → updating to: %s\n", lines[0], version)
 	}
 
 	fmt.Printf("downloading %s ...\n", zipURL)
@@ -93,14 +110,8 @@ func main() {
 	}
 
 	// node profile, super class, definitions, metadata
-	extras := map[string]string{
-		mraRoot + "nodeProfile/0x0EF0.json":      filepath.Join(destDir, "0x0EF0.json"),
-		mraRoot + "superClass/0x0000.json":       filepath.Join(destDir, "0x0000.json"),
-		mraRoot + "definitions/definitions.json": filepath.Join(destDir, "definitions.json"),
-		mraRoot + "metaData.json":                filepath.Join(destDir, "metaData.json"),
-	}
-	for src, dst := range extras {
-		if err := extractFile(zr, src, dst); err != nil {
+	for src, name := range extraFiles {
+		if err := extractFile(zr, mraRoot+src, filepath.Join(destDir, name)); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			continue
 		}
@@ -115,6 +126,24 @@ func main() {
 
 	fmt.Printf("copied %d files → %s\n", copyCount, destDir)
 	fmt.Println("next: go build -o el-mcp-server . && verify with search_device_class / list_epc / get_epc_detail")
+}
+
+// missingFiles returns the names of target files not yet present in destDir.
+func missingFiles() []string {
+	var names []string
+	for _, eoj := range targetDevices {
+		names = append(names, eoj+".json")
+	}
+	for _, name := range extraFiles {
+		names = append(names, name)
+	}
+	var missing []string
+	for _, name := range names {
+		if _, err := os.Stat(filepath.Join(destDir, name)); err != nil {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func download(url string) ([]byte, error) {
