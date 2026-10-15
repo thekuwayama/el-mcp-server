@@ -56,5 +56,6 @@ https://echonet.jp/spec_g/ で「第2部 ECHONET Lite 通信ミドルウェア�
 ## 注意
 
 - zip の URL・配布ページ URL は版ごとに変わる。ハードコードせず必ず `spec_g/` から辿る
-- `cmd/update-mra` は収録対象 14 クラス + スーパークラス + nodeProfile + definitions + metaData のみをコピーする。全クラスは取り込まない
+- `cmd/update-mra` は収録対象 15 クラス + スーパークラス + nodeProfile + definitions + metaData のみをコピーする。全クラスは取り込まない
+- 収録クラスを追加するときは `cmd/update-mra/main.go` の `targetDevices` に EOJ を足して同じ版で実行する。対象ファイルが欠けていれば、版が同じでも再取得する
 - リリースノート PDF やガイドブック PDF はリポジトリに含めない

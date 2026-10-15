@@ -25,7 +25,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | `list_epc` | 機器クラスの EPC（プロパティコード）一覧を取得 |
 | `get_epc_detail` | 特定 EPC の詳細（データ型・単位・アクセス規則）を取得 |
 
-収録機器クラス（全 15 クラス）:
+収録機器クラス（全 16 クラス）:
 
 - ノードプロファイル (`0EF0XX`)
 - 温度センサ (`0011XX`)
@@ -35,6 +35,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 - 電気温水器 (`026BXX`)
 - 瞬間式給湯器 (`0272XX`)
 - 住宅用太陽光発電 (`0279XX`)
+- 床暖房 (`027BXX`)
 - 燃料電池 (`027CXX`)
 - 蓄電池 (`027DXX`)
 - 電気自動車充放電器 (`027EXX`)
