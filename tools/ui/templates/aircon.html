@@ -370,7 +370,7 @@
 
   sendRequest("ui/initialize", {
     appCapabilities: { availableDisplayModes: ["inline"] },
-    clientInfo: { name: "el-mcp-server-aircon-ui", version: "0.1.0" },
+    appInfo: { name: "el-mcp-server-aircon-ui", version: "0.1.0" },
     protocolVersion: "2026-01-26"
   }, INITIALIZE_TIMEOUT_MS).then(function (result) {
     applyContainerDimensions(result && result.hostContext);
