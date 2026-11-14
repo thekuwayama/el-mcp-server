@@ -37,7 +37,7 @@ mcpb:
 		npx --yes @anthropic-ai/mcpb pack $$dir $$out; \
 	done
 
-## generate server.json (MCP Registry) from server.template.json with VERSION and the sha256 of the .mcpb bundles
+## generate server.json for the MCP Registry
 server-json:
 	@set -e; pkgs='[]'; for t in $(MCPB_TARGETS); do \
 		goos=$${t%%/*}; rest=$${t#*/}; goarch=$${rest%%/*}; \
