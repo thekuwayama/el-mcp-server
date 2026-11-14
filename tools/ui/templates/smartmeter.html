@@ -238,7 +238,8 @@
 
   // Re-runs render_smartmeter_ui for another day. Each day's log needs its
   // own SetC on EPC E5, so the history is fetched from the meter on demand
-  // rather than all at once.
+  // rather than all at once. history_only skips re-reading the current-state
+  // properties, and only the history part of the dashboard is redrawn.
   function moveDay(delta) {
     var h = current && current.history;
     if (!h || !current.ip || !current.eoj) return;
@@ -249,7 +250,7 @@
     section.classList.add("loading");
     showHistoryError("");
 
-    callTool("render_smartmeter_ui", { ip: current.ip, eoj: current.eoj, date: shiftDate(h.date, delta) })
+    callTool("render_smartmeter_ui", { ip: current.ip, eoj: current.eoj, date: shiftDate(h.date, delta), history_only: true })
       .then(function (result) {
         section.classList.remove("loading");
         var state = result && result.structuredContent;
@@ -259,7 +260,10 @@
           renderHistory(h, "履歴を取得できませんでした。");
           return;
         }
-        render(state);
+        // Keep the current-state rows as they are; only swap in the new day.
+        current.history = state.history;
+        current.history_error = state.history_error;
+        renderHistory(current.history, current.history_error);
       })
       .catch(function (err) {
         section.classList.remove("loading");
