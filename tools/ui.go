@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -178,7 +179,7 @@ func registerUITools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_smartmeter_ui",
-		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。仕様上ほとんどのプロパティが読み取り専用のため、このダッシュボードは操作系のコントロールを持たない読み取り専用ダッシュボードです。",
+		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))と、30分毎の買電/売電電力量の履歴(daysで指定した日数分、デフォルトは今日のみ)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。履歴は棒グラフで表示されます。履歴の読み出しには積算履歴収集日(EPC E5)への書き込みが必要ですが、取得後に元の値へ戻します。このダッシュボードは操作系のコントロールを持たない読み取り専用ダッシュボードです。",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		Meta: mcp.Meta{
 			"ui": map[string]any{
@@ -362,25 +363,59 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 	return jsonResult(state)
 }
 
+// maxSmartmeterHistoryDays caps render_smartmeter_ui's days parameter. Each
+// day costs three UDP round trips (Set 0xE5, Get 0xE2, Get 0xE4) and ~2.5KB
+// of JSON, so the cap keeps both latency and the result size reasonable.
+const maxSmartmeterHistoryDays = 7
+
 type renderSmartmeterUIParams struct {
-	IP  string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
-	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
+	IP   string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
+	EOJ  string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
+	Days int    `json:"days,omitempty" jsonschema:"30分毎の電力量履歴を何日分取得するか(今日を含む、1〜7、デフォルト1=今日のみ)。例: 7 なら6日前〜今日"`
 }
 
 type smartmeterUIState struct {
-	IP                   string   `json:"ip"`
-	EOJ                  string   `json:"eoj"`
-	OperatingStatus      string   `json:"operating_status,omitempty"`
-	InstantaneousPowerW  *int32   `json:"instantaneous_power_w,omitempty"`
-	InstantaneousRPhaseA *float64 `json:"instantaneous_r_phase_a,omitempty"`
-	InstantaneousTPhaseA *float64 `json:"instantaneous_t_phase_a,omitempty"`
-	CumulativeEnergyKWh  *float64 `json:"cumulative_energy_kwh,omitempty"`
+	IP                   string                 `json:"ip"`
+	EOJ                  string                 `json:"eoj"`
+	OperatingStatus      string                 `json:"operating_status,omitempty"`
+	InstantaneousPowerW  *int32                 `json:"instantaneous_power_w,omitempty"`
+	InstantaneousRPhaseA *float64               `json:"instantaneous_r_phase_a,omitempty"`
+	InstantaneousTPhaseA *float64               `json:"instantaneous_t_phase_a,omitempty"`
+	CumulativeEnergyKWh  *float64               `json:"cumulative_energy_kwh,omitempty"`
+	History              []smartmeterHistoryDay `json:"history,omitempty"`
+}
+
+// smartmeterHistoryDay is one day of half-hourly energy, oldest day first in
+// smartmeterUIState.History.
+type smartmeterHistoryDay struct {
+	DaysAgo        int                     `json:"days_ago"`
+	Date           string                  `json:"date"`
+	Slots          []smartmeterHistorySlot `json:"slots"`
+	TotalImportKWh *float64                `json:"total_import_kwh,omitempty"`
+	TotalExportKWh *float64                `json:"total_export_kwh,omitempty"`
+}
+
+// smartmeterHistorySlot is the energy bought (import, EPC 0xE2) and sold
+// (export, EPC 0xE4) in the half hour starting at Time. A nil value means the
+// meter has no data for that slot.
+type smartmeterHistorySlot struct {
+	Time      string   `json:"time"`
+	ImportKWh *float64 `json:"import_kwh,omitempty"`
+	ExportKWh *float64 `json:"export_kwh,omitempty"`
 }
 
 func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSmartmeterUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_smartmeter_ui", "低圧スマート電力量メータ(EOJ 0288xx)", 0x02, 0x88)
 	if errRes != nil {
 		return errRes, nil, nil
+	}
+
+	days := params.Days
+	if days == 0 {
+		days = 1
+	}
+	if days < 1 || days > maxSmartmeterHistoryDays {
+		return errorResult(fmt.Sprintf("days は1〜%dで指定してください。指定値: %d", maxSmartmeterHistoryDays, params.Days)), nil, nil
 	}
 
 	const timeout = 5 * time.Second
@@ -397,18 +432,131 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 		state.InstantaneousTPhaseA = &currents.TPhaseA
 	}
 
-	rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy)
+	// The coefficient (0xD3) and unit (0xE1) scale both the current cumulative
+	// reading and the history, so they are fetched once up front.
 	unitFactor := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyUnitEPC, timeout, ui.DecodeEnergyUnit)
-	if rawEnergy != nil && unitFactor != nil {
+	if unitFactor != nil {
 		coefficient := getPtr(params.IP, eoj, ui.CoefficientEPC, timeout, ui.DecodeCoefficient)
-		kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
-		state.CumulativeEnergyKWh = &kwh
+		if rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy); rawEnergy != nil {
+			kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
+			state.CumulativeEnergyKWh = &kwh
+		}
+		state.History = fetchSmartmeterHistory(params.IP, eoj, days, coefficient, *unitFactor, time.Now(), timeout)
 	}
 
 	if state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.InstantaneousRPhaseA == nil &&
-		state.CumulativeEnergyKWh == nil {
+		state.CumulativeEnergyKWh == nil && len(state.History) == 0 {
 		return errorResult(fmt.Sprintf("低圧スマート電力量メータ(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
 
 	return jsonResult(state)
+}
+
+// fetchSmartmeterHistory reads the half-hourly energy logs for today and the
+// preceding days-1 days. For each day it selects the collection day with a
+// SetC on EPC 0xE5 and then reads EPC 0xE2 (import) and 0xE4 (export). The
+// collection day is meter-wide state another controller (e.g. a HEMS) may rely
+// on, so the original value is written back when done. Days whose log cannot
+// be read, or whose log reports a different day than requested (another
+// controller changed 0xE5 in between), are left out.
+func fetchSmartmeterHistory(ip string, eoj uint32, days int, coefficient *uint32, unitFactor float64, now time.Time, timeout time.Duration) []smartmeterHistoryDay {
+	originalDay, err := echonet.GetProperty(ip, eoj, ui.EnergyLogDayEPC, timeout)
+	if err != nil {
+		return nil
+	}
+	defer func() {
+		_ = echonet.SetProperty(ip, eoj, ui.EnergyLogDayEPC, originalDay, timeout)
+	}()
+
+	readLog := func(epc byte, daysAgo int) *ui.EnergyLog {
+		edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+		if err != nil {
+			return nil
+		}
+		log, ok := ui.DecodeEnergyLog(edt)
+		if !ok || log.Day != daysAgo {
+			return nil
+		}
+		return &log
+	}
+
+	importLogs := make([]*ui.EnergyLog, days)
+	exportLogs := make([]*ui.EnergyLog, days)
+	// EPC 0xE4 is only required on meters measuring the reverse direction.
+	// Once it fails, stop asking so a meter without it doesn't cost a timeout
+	// per day.
+	exportSupported := true
+	for d := range days {
+		if err := echonet.SetProperty(ip, eoj, ui.EnergyLogDayEPC, ui.EncodeEnergyLogDay(d), timeout); err != nil {
+			continue
+		}
+		importLogs[d] = readLog(ui.NormalDirectionEnergyLogEPC, d)
+		if exportSupported {
+			exportLogs[d] = readLog(ui.ReverseDirectionEnergyLogEPC, d)
+			exportSupported = exportLogs[d] != nil
+		}
+	}
+
+	// Each day's last slot (23:30-24:00) ends at the following day's 00:00
+	// reading, i.e. the log one day fewer ago.
+	slotEnergies := func(logs []*ui.EnergyLog, d int) *[ui.SlotsPerDay]*float64 {
+		if logs[d] == nil {
+			return nil
+		}
+		var next *ui.EnergyLog
+		if d > 0 {
+			next = logs[d-1]
+		}
+		energies := ui.SlotEnergiesKWh(*logs[d], next, coefficient, unitFactor)
+		return &energies
+	}
+
+	var history []smartmeterHistoryDay
+	for d := days - 1; d >= 0; d-- {
+		imports := slotEnergies(importLogs, d)
+		exports := slotEnergies(exportLogs, d)
+		if imports == nil && exports == nil {
+			continue
+		}
+		day := smartmeterHistoryDay{
+			DaysAgo: d,
+			Date:    now.AddDate(0, 0, -d).Format("2006-01-02"),
+			Slots:   make([]smartmeterHistorySlot, ui.SlotsPerDay),
+		}
+		for i := range ui.SlotsPerDay {
+			slot := smartmeterHistorySlot{Time: fmt.Sprintf("%02d:%02d", i/2, i%2*30)}
+			if imports != nil {
+				slot.ImportKWh = imports[i]
+			}
+			if exports != nil {
+				slot.ExportKWh = exports[i]
+			}
+			day.Slots[i] = slot
+		}
+		day.TotalImportKWh = sumKWh(imports)
+		day.TotalExportKWh = sumKWh(exports)
+		history = append(history, day)
+	}
+	return history
+}
+
+// sumKWh totals the slots that have data, returning nil when energies is nil
+// or no slot has data.
+func sumKWh(energies *[ui.SlotsPerDay]*float64) *float64 {
+	if energies == nil {
+		return nil
+	}
+	var total float64
+	found := false
+	for _, e := range energies {
+		if e != nil {
+			total += *e
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	total = math.Round(total*10000) / 10000
+	return &total
 }
