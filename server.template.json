@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.thekuwayama/el-mcp-server",
+  "title": "el-mcp-server",
+  "description": "ECHONET Lite の仕様検索・LAN 内機器の取得/操作・認証製品検索を提供する MCP サーバー",
+  "repository": {
+    "url": "https://github.com/thekuwayama/el-mcp-server",
+    "source": "github",
+    "id": "1305457428"
+  },
+  "websiteUrl": "https://github.com/thekuwayama/el-mcp-server"
+}
