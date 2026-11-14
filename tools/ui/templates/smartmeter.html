@@ -5,6 +5,8 @@
 <title>スマートメーターダッシュボード</title>
 <style>
   :root { color-scheme: light dark; }
+  /* Elements given an explicit display (e.g. the inline-flex view toggle) would otherwise ignore the hidden attribute. */
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     padding: 16px;
@@ -39,6 +41,56 @@
     background: rgba(0,137,123,0.15);
     color: #00897b;
   }
+
+  .history { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); }
+  .history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .history-head .date { font-weight: 600; }
+  .history-head button {
+    font: inherit;
+    font-size: 12px;
+    color: inherit;
+    background: rgba(128,128,128,0.12);
+    border: 1px solid rgba(128,128,128,0.4);
+    border-radius: 6px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .history-head button:disabled { opacity: 0.35; cursor: default; }
+  .totals { font-size: 12px; opacity: 0.8; margin: 6px 0 4px; }
+  .legend-import { color: #e8710a; }
+  .legend-export { color: #00897b; }
+  /* The SVG scales with its viewBox, so cap the width to keep labels legible in wide hosts. */
+  .chart { width: 100%; max-width: 640px; height: auto; display: block; }
+  .chart text { font-size: 10px; fill: currentColor; opacity: 0.7; }
+  .chart .bar-import { fill: #e8710a; }
+  .chart .bar-export { fill: #00897b; }
+  .chart .bar-nodata { fill: rgba(128,128,128,0.35); }
+  .chart .axis { stroke: rgba(128,128,128,0.6); stroke-width: 1; }
+  .chart .hit { fill: transparent; }
+  .chart .hit:hover { fill: rgba(128,128,128,0.15); }
+  .readout { font-size: 12px; min-height: 1.4em; opacity: 0.8; }
+  .history-error { font-size: 12px; color: #d93025; margin-top: 4px; }
+  .history-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .view-toggle { display: inline-flex; border: 1px solid rgba(128,128,128,0.4); border-radius: 6px; overflow: hidden; }
+  .view-toggle button {
+    font: inherit;
+    font-size: 11px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .view-toggle button[aria-pressed="true"] { background: rgba(128,128,128,0.25); font-weight: 600; }
+  .table-wrap { max-height: 320px; overflow-y: auto; margin-top: 4px; }
+  .history-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .history-table th, .history-table td { padding: 3px 8px; border-bottom: 1px solid rgba(128,128,128,0.2); }
+  .history-table th { position: sticky; top: 0; text-align: right; font-weight: 600; opacity: 0.9; background: Canvas; }
+  .history-table th:first-child, .history-table td:first-child { text-align: left; }
+  .history-table td { text-align: right; }
+  .history-table td.nodata { opacity: 0.45; }
+  .history-table tfoot td { font-weight: 600; border-bottom: 0; }
+  .history.loading .chart, .history.loading .totals { opacity: 0.4; }
 </style>
 </head>
 <body>
@@ -51,6 +103,31 @@
     <dt>積算電力量(正方向)</dt><dd id="v-energy">-</dd>
   </dl>
   <div class="empty" id="empty" hidden>この機器からは表示可能な情報が取得できませんでした。</div>
+  <div class="history" id="history" hidden>
+    <div class="history-head">
+      <button type="button" id="btn-prev" aria-label="前日">◀ 前日</button>
+      <span class="date" id="history-date">-</span>
+      <button type="button" id="btn-next" aria-label="翌日">翌日 ▶</button>
+    </div>
+    <div class="history-bar">
+      <div class="totals" id="history-totals">-</div>
+      <div class="view-toggle" id="view-toggle" role="group" aria-label="表示切り替え">
+        <button type="button" id="btn-view-chart" aria-pressed="true">グラフ</button>
+        <button type="button" id="btn-view-table" aria-pressed="false">表</button>
+      </div>
+    </div>
+    <div id="view-chart">
+      <svg class="chart" id="history-chart" viewBox="0 0 480 200" role="img" aria-label="30分毎の電力量"></svg>
+      <div class="readout" id="history-readout"></div>
+    </div>
+    <div class="table-wrap" id="view-table" hidden>
+      <table class="history-table">
+        <thead><tr><th>時間帯</th><th>買電 (kWh)</th><th id="th-export">売電 (kWh)</th></tr></thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+    <div class="history-error" id="history-error" hidden></div>
+  </div>
 </div>
 <script>
 (function () {
@@ -122,6 +199,249 @@
 
     document.getElementById("v-energy").textContent =
       typeof state.cumulative_energy_kwh === "number" ? state.cumulative_energy_kwh + " kWh" : "不明";
+
+    current = state;
+    renderHistory(state.history, state.history_error);
+  }
+
+  // ---- half-hourly energy history chart ----
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  var CHART_W = 480, PAD_L = 36, PAD_R = 4, PAD_T = 8, PAD_B = 18;
+  // EPC E5 (積算履歴収集日1) can select up to 99 days ago.
+  var MAX_DAYS_AGO = 99;
+  var current = null;
+
+  function callTool(name, args) {
+    return sendRequest("tools/call", { name: name, arguments: args }).then(function (result) {
+      if (result && result.isError) {
+        var text = (result.content || []).map(function (c) { return c.text; }).filter(Boolean).join(" ");
+        throw new Error(text || (name + " failed"));
+      }
+      return result;
+    });
+  }
+
+  // Shifts a YYYY-MM-DD date by delta days. Done in UTC so the result does
+  // not depend on the viewer's time zone.
+  function shiftDate(date, delta) {
+    var p = date.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + delta));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function showHistoryError(message) {
+    var el = document.getElementById("history-error");
+    el.textContent = message || "";
+    el.hidden = !message;
+  }
+
+  // Re-runs render_smartmeter_ui for another day. Each day's log needs its
+  // own SetC on EPC E5, so the history is fetched from the meter on demand
+  // rather than all at once.
+  function moveDay(delta) {
+    var h = current && current.history;
+    if (!h || !current.ip || !current.eoj) return;
+    var section = document.getElementById("history");
+    var prev = document.getElementById("btn-prev");
+    var next = document.getElementById("btn-next");
+    prev.disabled = next.disabled = true;
+    section.classList.add("loading");
+    showHistoryError("");
+
+    callTool("render_smartmeter_ui", { ip: current.ip, eoj: current.eoj, date: shiftDate(h.date, delta) })
+      .then(function (result) {
+        section.classList.remove("loading");
+        var state = result && result.structuredContent;
+        if (!state) {
+          // Without structuredContent there is nothing to redraw; restore the
+          // current day so the navigation buttons don't stay disabled.
+          renderHistory(h, "履歴を取得できませんでした。");
+          return;
+        }
+        render(state);
+      })
+      .catch(function (err) {
+        section.classList.remove("loading");
+        renderHistory(h, (err && err.message) || String(err));
+      });
+  }
+
+  document.getElementById("btn-prev").addEventListener("click", function () { moveDay(-1); });
+  document.getElementById("btn-next").addEventListener("click", function () { moveDay(1); });
+
+  function isNum(v) { return typeof v === "number"; }
+  function fmtKWh(v) { return isNum(v) ? (Math.round(v * 1000) / 1000) + " kWh" : "データなし"; }
+
+  function svgEl(name, attrs, parent) {
+    var el = document.createElementNS(SVG_NS, name);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+
+  function scaleMax(day, key) {
+    var max = 0;
+    day.slots.forEach(function (s) { if (isNum(s[key]) && s[key] > max) max = s[key]; });
+    return max;
+  }
+
+  function renderHistory(day, error) {
+    var section = document.getElementById("history");
+    if (!day || !day.date) { section.hidden = true; return; }
+    section.hidden = false;
+
+    var label = day.date;
+    if (day.days_ago === 0) label += "（今日）";
+    else if (day.days_ago === 1) label += "（昨日）";
+    document.getElementById("history-date").textContent = label;
+
+    var canNavigate = !!(current && current.ip && current.eoj);
+    document.getElementById("btn-prev").disabled = !canNavigate || day.days_ago >= MAX_DAYS_AGO;
+    document.getElementById("btn-next").disabled = !canNavigate || day.days_ago <= 0;
+    showHistoryError(error);
+    document.getElementById("history-readout").textContent = "";
+
+    var totals = document.getElementById("history-totals");
+    var slots = Array.isArray(day.slots) ? day.slots : [];
+    var hasSlots = slots.length > 0;
+    totals.hidden = !hasSlots;
+    document.getElementById("view-toggle").hidden = !hasSlots;
+    applyView(hasSlots);
+    if (!hasSlots) return;
+
+    var hasExport = slots.some(function (s) { return isNum(s.export_kwh); });
+    totals.textContent = "";
+    var imp = document.createElement("span");
+    imp.className = "legend-import";
+    imp.textContent = "■ 買電 " + fmtKWh(day.total_import_kwh);
+    totals.appendChild(imp);
+    if (hasExport) {
+      totals.appendChild(document.createTextNode("　"));
+      var exp = document.createElement("span");
+      exp.className = "legend-export";
+      exp.textContent = "■ 売電 " + fmtKWh(day.total_export_kwh);
+      totals.appendChild(exp);
+    }
+
+    drawChart(day, hasExport);
+    fillTable(day, hasExport);
+  }
+
+  // ---- chart / table view toggle ----
+
+  // The chosen view sticks across day navigation.
+  var view = "chart";
+
+  function applyView(hasSlots) {
+    document.getElementById("view-chart").hidden = !hasSlots || view !== "chart";
+    document.getElementById("view-table").hidden = !hasSlots || view !== "table";
+    document.getElementById("btn-view-chart").setAttribute("aria-pressed", String(view === "chart"));
+    document.getElementById("btn-view-table").setAttribute("aria-pressed", String(view === "table"));
+  }
+
+  function setView(v) {
+    view = v;
+    var day = current && current.history;
+    applyView(!!(day && Array.isArray(day.slots) && day.slots.length));
+  }
+
+  document.getElementById("btn-view-chart").addEventListener("click", function () { setView("chart"); });
+  document.getElementById("btn-view-table").addEventListener("click", function () { setView("table"); });
+
+  function fmtCell(v) { return isNum(v) ? (Math.round(v * 1000) / 1000).toFixed(3) : "—"; }
+
+  function fillTable(day, hasExport) {
+    var tbody = document.getElementById("history-tbody");
+    while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+    document.getElementById("th-export").hidden = !hasExport;
+
+    function cell(tr, text, cls) {
+      var td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+    }
+
+    day.slots.forEach(function (s, i) {
+      var tr = document.createElement("tr");
+      var end = i + 1 < day.slots.length ? day.slots[i + 1].time : "24:00";
+      cell(tr, s.time + "–" + end);
+      cell(tr, fmtCell(s.import_kwh), isNum(s.import_kwh) ? "" : "nodata");
+      if (hasExport) cell(tr, fmtCell(s.export_kwh), isNum(s.export_kwh) ? "" : "nodata");
+      tbody.appendChild(tr);
+    });
+
+    var table = tbody.parentNode;
+    var oldFoot = table.querySelector("tfoot");
+    if (oldFoot) table.removeChild(oldFoot);
+    var tfoot = document.createElement("tfoot");
+    var tr = document.createElement("tr");
+    cell(tr, "合計");
+    cell(tr, fmtCell(day.total_import_kwh));
+    if (hasExport) cell(tr, fmtCell(day.total_export_kwh));
+    tfoot.appendChild(tr);
+    table.appendChild(tfoot);
+  }
+
+  function drawChart(day, hasExport) {
+    var svg = document.getElementById("history-chart");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var chartH = hasExport ? 200 : 130;
+    svg.setAttribute("viewBox", "0 0 " + CHART_W + " " + chartH);
+
+    var plotW = CHART_W - PAD_L - PAD_R;
+    var plotH = chartH - PAD_T - PAD_B;
+    // Import bars grow up from the baseline, export bars grow down from it.
+    var upH = hasExport ? plotH * 0.6 : plotH;
+    var downH = plotH - upH;
+    var baseY = PAD_T + upH;
+
+    var maxImport = scaleMax(day, "import_kwh") || 1;
+    var maxExport = scaleMax(day, "export_kwh") || 1;
+    var slotW = plotW / day.slots.length;
+    var barW = Math.max(1, slotW * 0.75);
+
+    // y-axis labels (kWh per 30 minutes)
+    svgEl("text", { x: PAD_L - 4, y: PAD_T + 8, "text-anchor": "end" }, svg).textContent = String(Math.round(maxImport * 100) / 100);
+    if (hasExport) {
+      svgEl("text", { x: PAD_L - 4, y: baseY + downH, "text-anchor": "end" }, svg).textContent = String(Math.round(maxExport * 100) / 100);
+    }
+    svgEl("text", { x: PAD_L - 4, y: baseY + 3, "text-anchor": "end" }, svg).textContent = "0";
+
+    day.slots.forEach(function (s, i) {
+      var x = PAD_L + i * slotW + (slotW - barW) / 2;
+      if (isNum(s.import_kwh)) {
+        var h = (s.import_kwh / maxImport) * upH;
+        svgEl("rect", { "class": "bar-import", x: x, y: baseY - h, width: barW, height: h }, svg);
+      }
+      if (hasExport && isNum(s.export_kwh)) {
+        var hd = (s.export_kwh / maxExport) * downH;
+        svgEl("rect", { "class": "bar-export", x: x, y: baseY, width: barW, height: hd }, svg);
+      }
+      if (!isNum(s.import_kwh) && !isNum(s.export_kwh)) {
+        svgEl("rect", { "class": "bar-nodata", x: x, y: baseY - 2, width: barW, height: 4 }, svg);
+      }
+
+      // Full-height transparent hit area so thin or empty slots are still hoverable.
+      var hit = svgEl("rect", { "class": "hit", x: PAD_L + i * slotW, y: PAD_T, width: slotW, height: plotH }, svg);
+      var end = i + 1 < day.slots.length ? day.slots[i + 1].time : "24:00";
+      var text = s.time + "–" + end + "　買電 " + fmtKWh(s.import_kwh) +
+        (hasExport ? " / 売電 " + fmtKWh(s.export_kwh) : "");
+      svgEl("title", {}, hit).textContent = text;
+      hit.addEventListener("mouseenter", function () {
+        document.getElementById("history-readout").textContent = text;
+      });
+    });
+
+    svgEl("line", { "class": "axis", x1: PAD_L, x2: CHART_W - PAD_R, y1: baseY, y2: baseY }, svg);
+
+    // x-axis labels every 6 hours
+    for (var hr = 0; hr <= 24; hr += 6) {
+      var anchor = hr === 0 ? "start" : (hr === 24 ? "end" : "middle");
+      svgEl("text", { x: PAD_L + (hr / 24) * plotW, y: chartH - 4, "text-anchor": anchor }, svg).textContent = hr + ":00";
+    }
   }
 
   function sendNotification(method, params) {

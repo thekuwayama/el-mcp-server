@@ -1,5 +1,7 @@
 package ui
 
+import "math"
+
 // Smart meter EPC codes (ECHONET Lite 0x0288 low-voltage smart electric
 // energy meter class). OperatingStatusEPC (0x80) is the shared superclass
 // property defined in common_decode.go.
@@ -9,7 +11,89 @@ const (
 	CumulativeElectricEnergyEPC     = 0xE0 // raw cumulative energy, normal direction (noData=0xFFFFFFFE); scale by CoefficientEPC x CumulativeElectricEnergyUnitEPC to get kWh
 	CoefficientEPC                  = 0xD3 // number 0-999999, multiplier applied to CumulativeElectricEnergyEPC (assumed 1 if not reported)
 	CumulativeElectricEnergyUnitEPC = 0xE1 // state enum, multiplying factor applied to CumulativeElectricEnergyEPC
+	NormalDirectionEnergyLogEPC     = 0xE2 // collection day (2 bytes) + 48 half-hourly raw cumulative readings, normal direction (import)
+	ReverseDirectionEnergyLogEPC    = 0xE4 // same layout as 0xE2, reverse direction (export); conditionally required
+	EnergyLogDayEPC                 = 0xE5 // collection day for 0xE2/0xE4, 0 (today) to 99 days ago; Set selects the day
 )
+
+// SlotsPerDay is the number of half-hourly readings in one day's energy log
+// (00:00 to 23:30).
+const SlotsPerDay = 48
+
+// MaxEnergyLogDay is the largest collection day (days ago) EPC 0xE5 accepts.
+const MaxEnergyLogDay = 99
+
+// rawEnergyModulus is where the 8-digit raw cumulative reading wraps around
+// back to 0.
+const rawEnergyModulus = 100000000
+
+// EnergyLog is one day's half-hourly cumulative readings decoded from EPC
+// 0xE2/0xE4. Readings[i] is the raw cumulative reading at slot i (00:00,
+// 00:30, ... 23:30); it is only meaningful when Valid[i] is true.
+type EnergyLog struct {
+	Day      int
+	Readings [SlotsPerDay]uint32
+	Valid    [SlotsPerDay]bool
+}
+
+// DecodeEnergyLog decodes EPC 0xE2/0xE4: a 2-byte collection day followed by
+// 48 4-byte raw cumulative readings. 0xFFFFFFFE (or any out-of-range value)
+// marks a slot without data, e.g. the future slots of today or a slot lost to
+// a power outage.
+func DecodeEnergyLog(edt []byte) (EnergyLog, bool) {
+	if len(edt) != 2+SlotsPerDay*4 {
+		return EnergyLog{}, false
+	}
+	log := EnergyLog{Day: int(edt[0])<<8 | int(edt[1])}
+	if log.Day > MaxEnergyLogDay {
+		return EnergyLog{}, false
+	}
+	for i := range SlotsPerDay {
+		v, ok := DecodeRawCumulativeEnergy(edt[2+i*4 : 6+i*4])
+		log.Readings[i] = v
+		log.Valid[i] = ok
+	}
+	return log, true
+}
+
+// EncodeEnergyLogDay encodes a collection day (days ago) as the EDT of EPC
+// 0xE5.
+func EncodeEnergyLogDay(daysAgo int) []byte {
+	return []byte{byte(daysAgo)}
+}
+
+// SlotEnergiesKWh converts one day's cumulative readings into the energy
+// consumed (or exported) in each half-hour slot, in kWh. Slot i covers
+// Readings[i] to Readings[i+1]; the last slot (23:30-24:00) ends at the next
+// day's 00:00 reading, so next must be the following day's log (nil if not
+// available, e.g. for today). A slot is nil when either endpoint has no data.
+// A decreasing reading is treated as the 8-digit counter wrapping around.
+func SlotEnergiesKWh(log EnergyLog, next *EnergyLog, coefficient *uint32, unitFactor float64) [SlotsPerDay]*float64 {
+	var out [SlotsPerDay]*float64
+	for i := range SlotsPerDay {
+		start, startOK := log.Readings[i], log.Valid[i]
+		var end uint32
+		var endOK bool
+		if i+1 < SlotsPerDay {
+			end, endOK = log.Readings[i+1], log.Valid[i+1]
+		} else if next != nil {
+			end, endOK = next.Readings[0], next.Valid[0]
+		}
+		if !startOK || !endOK {
+			continue
+		}
+		diff := (uint64(end) + rawEnergyModulus - uint64(start)) % rawEnergyModulus
+		kwh := roundKWh(CumulativeEnergyKWh(uint32(diff), coefficient, unitFactor))
+		out[i] = &kwh
+	}
+	return out
+}
+
+// roundKWh rounds to 4 decimal places, the finest resolution EPC 0xE1 can
+// express, to drop floating-point noise such as 0.30000000000000004.
+func roundKWh(v float64) float64 {
+	return math.Round(v*10000) / 10000
+}
 
 // DecodeInstantaneousPowerW decodes EPC 0xE7 (4-byte signed instantaneous
 // power in W). 0x7FFFFFFE means "no data".

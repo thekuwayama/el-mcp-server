@@ -57,6 +57,73 @@ func TestDecodeEnergyUnit(t *testing.T) {
 	}
 }
 
+// energyLogEDT builds an EPC 0xE2/0xE4 EDT for day with the given readings;
+// slots beyond len(readings) are filled with the 0xFFFFFFFE no-data sentinel.
+func energyLogEDT(day int, readings ...uint32) []byte {
+	edt := []byte{byte(day >> 8), byte(day)}
+	for i := range SlotsPerDay {
+		v := uint32(0xFFFFFFFE)
+		if i < len(readings) {
+			v = readings[i]
+		}
+		edt = append(edt, byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+	}
+	return edt
+}
+
+func TestDecodeEnergyLog(t *testing.T) {
+	log, ok := DecodeEnergyLog(energyLogEDT(3, 1000, 1005))
+	if !ok {
+		t.Fatal("DecodeEnergyLog failed on a valid EDT")
+	}
+	if log.Day != 3 {
+		t.Errorf("Day = %d, want 3", log.Day)
+	}
+	if !log.Valid[0] || log.Readings[0] != 1000 || !log.Valid[1] || log.Readings[1] != 1005 {
+		t.Errorf("first readings = (%d %v, %d %v), want (1000 true, 1005 true)", log.Readings[0], log.Valid[0], log.Readings[1], log.Valid[1])
+	}
+	if log.Valid[2] {
+		t.Error("slot with noData sentinel should be invalid")
+	}
+
+	if _, ok := DecodeEnergyLog(energyLogEDT(3)[:100]); ok {
+		t.Error("DecodeEnergyLog with truncated EDT should fail")
+	}
+	if _, ok := DecodeEnergyLog(energyLogEDT(0xFF)); ok {
+		t.Error("DecodeEnergyLog with day out of range should fail")
+	}
+}
+
+func TestSlotEnergiesKWh(t *testing.T) {
+	readings := make([]uint32, SlotsPerDay)
+	for i := range readings {
+		readings[i] = 1000 + uint32(i)*3
+	}
+	readings[10] = 0xFFFFFFFE // outage
+	log, _ := DecodeEnergyLog(energyLogEDT(1, readings...))
+	next, _ := DecodeEnergyLog(energyLogEDT(0, 1000+SlotsPerDay*3))
+
+	got := SlotEnergiesKWh(log, &next, nil, 0.1)
+	if got[0] == nil || *got[0] != 0.3 {
+		t.Errorf("slot 0 = %v, want 0.3", got[0])
+	}
+	if got[9] != nil || got[10] != nil {
+		t.Error("slots touching a no-data reading should be nil")
+	}
+	if got[SlotsPerDay-1] == nil || *got[SlotsPerDay-1] != 0.3 {
+		t.Errorf("last slot = %v, want 0.3 (ends at next day's 00:00)", got[SlotsPerDay-1])
+	}
+
+	if got := SlotEnergiesKWh(log, nil, nil, 0.1); got[SlotsPerDay-1] != nil {
+		t.Error("last slot without next day's log should be nil")
+	}
+
+	wrapped, _ := DecodeEnergyLog(energyLogEDT(0, 99999999, 2))
+	if got := SlotEnergiesKWh(wrapped, nil, nil, 1); got[0] == nil || *got[0] != 3 {
+		t.Errorf("wrapped slot = %v, want 3", got[0])
+	}
+}
+
 func TestCumulativeEnergyKWh(t *testing.T) {
 	if got := CumulativeEnergyKWh(1234, nil, 0.001); got != 1.234 {
 		t.Errorf("CumulativeEnergyKWh(1234, nil, 0.001) = %v, want 1.234", got)
