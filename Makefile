@@ -1,12 +1,15 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build test mcpb clean
+.PHONY: help build test mcpb server-json clean
 
 # release version embedded in .mcpb file names (JST date, same as the release tag)
 VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
 
 # .mcpb targets as GOOS/GOARCH/mcpb-platform
 MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
+
+# GitHub Releases URL where the .mcpb bundles are published
+RELEASE_URL := https://github.com/thekuwayama/el-mcp-server/releases/download
 
 ## show this help
 help:
@@ -34,6 +37,17 @@ mcpb:
 		npx --yes @anthropic-ai/mcpb pack $$dir $$out; \
 	done
 
+## generate server.json for the MCP Registry
+server-json:
+	@set -e; pkgs='[]'; for t in $(MCPB_TARGETS); do \
+		goos=$${t%%/*}; rest=$${t#*/}; goarch=$${rest%%/*}; \
+		file=el-mcp-server_$(VERSION)_$${goos}_$${goarch}.mcpb; \
+		sha=$$(shasum -a 256 mcpb/$$file | cut -d ' ' -f 1); \
+		pkgs=$$(echo "$$pkgs" | jq -c --arg url "$(RELEASE_URL)/$(VERSION)/$$file" --arg sha "$$sha" \
+			'. + [{registryType: "mcpb", identifier: $$url, fileSha256: $$sha, transport: {type: "stdio"}}]'); \
+	done; \
+	jq --arg v "$(VERSION)" --argjson pkgs "$$pkgs" '.version = $$v | .packages = $$pkgs' server.template.json > server.json
+
 ## remove build artifacts
 clean:
-	rm -rf el-mcp-server mcpb/build mcpb/*.mcpb
+	rm -rf el-mcp-server mcpb/build mcpb/*.mcpb server.json
