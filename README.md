@@ -62,13 +62,15 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 
 ### UI 表示（MCP Apps）
 
+機器の状態を取得し、[MCP Apps](https://modelcontextprotocol.io/community/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)（SEP-1865）対応クライアントでは `ui://el-mcp-server/<機器>` のダッシュボードとして表示します。
+
 | ツール | 概要 |
 |---|---|
-| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を取得。[MCP Apps](https://modelcontextprotocol.io/community/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)（SEP-1865）対応クライアントでは `ui://el-mcp-server/battery` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能 |
-| `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/solar` リソースをダッシュボード UI として表示。仕様上ほとんどのプロパティが読み取り専用のため、`render_battery_ui` と異なり操作系のコントロールは持たない読み取り専用ダッシュボード |
-| `render_v2h_ui` | V2H(電気自動車充放電器、EOJ `027Exx`)の稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/v2h` リソースをダッシュボード UI として表示。運転モード(EPC `DA`)・充放電電力(EPC `D3`)・電池残容量(EPC `E4`)は蓄電池クラスと同じ EPC 番号・データ形式のため、`render_battery_ui` と同様に稼働状態トグルと運転モードのセレクトから `set_property` を呼び出して機器を操作可能。ただし運転モードの列挙値は蓄電池クラスと一部異なる（`tools/ui/v2h_decode.go` 参照） |
-| `render_aircon_ui` | 家庭用エアコン(EOJ `0130xx`)の稼働状態・運転モード・設定温度・室内温度・風量設定を取得。MCP Apps 対応クライアントでは `ui://el-mcp-server/aircon` リソースをダッシュボード UI として表示。ダッシュボード上の稼働状態トグル・運転モード/風量のセレクト・設定温度の増減ボタンから `set_property` を呼び出して機器を操作可能 |
-| `render_smartmeter_ui` | 低圧スマート電力量メータ(EOJ `0288xx`)の稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向)と、30 分毎の買電/売電電力量の履歴(EPC `E2` / `E4`)を取得。履歴は `date` パラメータ(`YYYY-MM-DD`、省略時は今日、99 日前まで)で表示日を指定可能。MCP Apps 対応クライアントでは `ui://el-mcp-server/smartmeter` リソースをダッシュボード UI として表示し、履歴を買電(上)/売電(下)の棒グラフまたは表(切り替え可能)で表示、ダッシュボード上の前日/翌日ボタンから `render_smartmeter_ui` を再度呼び出して表示日を切り替え可能。履歴の読み出しには積算履歴収集日(EPC `E5`)への SetC が必要なため、取得後に元の値へ書き戻す。仕様上ほとんどのプロパティが読み取り専用のため、`render_solar_ui` と同様に操作系のコントロールは持たない読み取り専用ダッシュボード |
+| `render_battery_ui` | 蓄電池(EOJ `027Dxx`)の稼働状態・運転モード・蓄電残量・充放電電力を表示。稼働状態と運転モードを操作可能 |
+| `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を表示。読み取り専用 |
+| `render_v2h_ui` | V2H(EOJ `027Exx`)の稼働状態・運転モード・車載電池残容量・充放電電力・積算充放電電力量・車両接続状態を表示。稼働状態と運転モードを操作可能 |
+| `render_aircon_ui` | 家庭用エアコン(EOJ `0130xx`)の稼働状態・運転モード・設定温度・室内温度・風量を表示。稼働状態・運転モード・設定温度・風量を操作可能 |
+| `render_smartmeter_ui` | 低圧スマート電力量メータ(EOJ `0288xx`)の稼働状態・瞬時電力・瞬時電流・積算電力量と、`date`(省略時は今日)で指定した日の 30 分毎の買電/売電電力量をグラフ/表で表示。前日/翌日へ移動可能。履歴の取得時に積算履歴収集日(EPC `E5`)を書き換え、取得後に元の値へ戻す |
 
 MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 
@@ -147,7 +149,7 @@ sequenceDiagram
 
 ### UI 表示（MCP Apps）
 
-`render_battery_ui` / `render_solar_ui` / `render_v2h_ui` / `render_aircon_ui` / `render_smartmeter_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML リソースをダッシュボードとして描画します。返す JSON（`structuredContent`）は各ツールで命名規則（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）を揃えており、対応する HTML（`tools/ui/templates/battery.html` / `solar.html` / `v2h.html` / `aircon.html` / `smartmeter.html`）も見出し→ゲージ・数値→プロパティ一覧という同じ構造を共有しています。
+`render_*_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML（`tools/ui/templates/*.html`）をダッシュボードとして描画します。返す JSON（`structuredContent`）の命名規則は各ツールで揃えています（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）。
 
 ```mermaid
 sequenceDiagram
@@ -173,7 +175,7 @@ sequenceDiagram
     S-->>-AI: CallToolResult (JSON)<br/>ダッシュボードを最新状態で再描画
 ```
 
-例えば `render_battery_ui` のダッシュボード HTML(`tools/ui/templates/battery.html`)は MCP Apps の postMessage ブリッジ経由で `tools/call` をホストに直接送信できるため、稼働状態(EPC `80`)のON/OFFトグルと運転モード(EPC `DA`)のセレクトから、AI を介さず `set_property` → `render_battery_ui`(再取得)を呼び出して画面を更新します。`render_solar_ui` / `render_v2h_ui` も同じ postMessage ブリッジ・ハンドシェイクを使いますが、住宅用太陽光発電クラスは大半のプロパティが読み取り専用のため読み取り専用ダッシュボードになっている、V2H は運転モードの列挙値が蓄電池クラスと一部異なるためデコーダー(`tools/ui/v2h_decode.go`)を独立させている、といった機器クラスごとの差分があります。
+ダッシュボードは MCP Apps の postMessage ブリッジ経由でホストに `tools/call` を直接送信できるため、操作系のコントロールは AI を介さず `set_property` → `render_*_ui`(再取得)を呼び出して画面を更新します。スマートメーターの前日/翌日ボタンも同じ仕組みで `render_smartmeter_ui` を呼び出します。
 
 ## インストール
 
