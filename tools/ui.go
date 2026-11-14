@@ -371,6 +371,10 @@ type renderSmartmeterUIParams struct {
 	IP   string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
 	EOJ  string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
 	Date string `json:"date,omitempty" jsonschema:"30分毎の電力量履歴を表示する日付(YYYY-MM-DD)。省略時は今日。今日から99日前まで指定可能。例: 2026-11-14"`
+	// HistoryOnly is set by the dashboard's previous/next-day buttons, which
+	// only need the history; skipping the current-state properties saves four
+	// Get round trips per day change.
+	HistoryOnly bool `json:"history_only,omitempty" jsonschema:"trueの場合は履歴(EPC E2/E4)とその換算に必要なEPC D3/E1のみ取得し、稼働状態・瞬時電力・瞬時電流・積算電力量は取得しない。ダッシュボードの前日/翌日ボタンが使用する。省略時はfalse"`
 }
 
 type smartmeterUIState struct {
@@ -449,19 +453,21 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 	const timeout = 5 * time.Second
 
 	state := smartmeterUIState{
-		IP:                  params.IP,
-		EOJ:                 fmt.Sprintf("%06X", eoj),
-		OperatingStatus:     getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
-		InstantaneousPowerW: getPtr(params.IP, eoj, ui.InstantaneousElectricPowerEPC, timeout, ui.DecodeInstantaneousPowerW),
+		IP:  params.IP,
+		EOJ: fmt.Sprintf("%06X", eoj),
 		History: smartmeterHistoryDay{
 			Date:    now.AddDate(0, 0, -daysAgo).Format(smartmeterHistoryDateLayout),
 			DaysAgo: daysAgo,
 		},
 	}
 
-	if currents := getPtr(params.IP, eoj, ui.InstantaneousCurrentsEPC, timeout, ui.DecodeInstantaneousCurrents); currents != nil {
-		state.InstantaneousRPhaseA = &currents.RPhaseA
-		state.InstantaneousTPhaseA = &currents.TPhaseA
+	if !params.HistoryOnly {
+		state.OperatingStatus = getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus)
+		state.InstantaneousPowerW = getPtr(params.IP, eoj, ui.InstantaneousElectricPowerEPC, timeout, ui.DecodeInstantaneousPowerW)
+		if currents := getPtr(params.IP, eoj, ui.InstantaneousCurrentsEPC, timeout, ui.DecodeInstantaneousCurrents); currents != nil {
+			state.InstantaneousRPhaseA = &currents.RPhaseA
+			state.InstantaneousTPhaseA = &currents.TPhaseA
+		}
 	}
 
 	// The coefficient (0xD3) and unit (0xE1) scale both the current cumulative
@@ -469,9 +475,11 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 	unitFactor := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyUnitEPC, timeout, ui.DecodeEnergyUnit)
 	if unitFactor != nil {
 		coefficient := getPtr(params.IP, eoj, ui.CoefficientEPC, timeout, ui.DecodeCoefficient)
-		if rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy); rawEnergy != nil {
-			kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
-			state.CumulativeEnergyKWh = &kwh
+		if !params.HistoryOnly {
+			if rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy); rawEnergy != nil {
+				kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
+				state.CumulativeEnergyKWh = &kwh
+			}
 		}
 		if err := fetchSmartmeterHistory(params.IP, eoj, &state.History, coefficient, *unitFactor, timeout); err != nil {
 			state.HistoryError = err.Error()
@@ -480,7 +488,10 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 		state.HistoryError = "積算電力量単位(EPC E1)を取得できないため、履歴を電力量に換算できませんでした。"
 	}
 
-	if state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.InstantaneousRPhaseA == nil &&
+	// In history_only mode the caller (the dashboard) already shows the current
+	// state, so a missing history is reported via history_error rather than as
+	// a failed call, letting the dashboard move to the new day and show why.
+	if !params.HistoryOnly && state.OperatingStatus == "" && state.InstantaneousPowerW == nil && state.InstantaneousRPhaseA == nil &&
 		state.CumulativeEnergyKWh == nil && state.History.Slots == nil {
 		return errorResult(fmt.Sprintf("低圧スマート電力量メータ(IP: %s, EOJ: %s)から表示可能なプロパティを取得できませんでした。", params.IP, state.EOJ)), nil, nil
 	}
