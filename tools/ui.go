@@ -371,7 +371,7 @@ const maxSmartmeterHistoryDays = 7
 type renderSmartmeterUIParams struct {
 	IP   string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
 	EOJ  string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
-	Days int    `json:"days,omitempty" jsonschema:"30分毎の電力量履歴を何日分取得するか(今日を含む、1〜7、デフォルト1=今日のみ)。例: 7 なら6日前〜今日"`
+	Days int    `json:"days,omitempty" jsonschema:"30分毎の電力量履歴を何日分取得するか(今日を含む1〜7。省略時は1で今日のみ)。例: 7 なら6日前〜今日"`
 }
 
 type smartmeterUIState struct {
