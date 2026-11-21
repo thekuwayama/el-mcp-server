@@ -8,7 +8,7 @@ ECHONET Lite の情報を AI から利用可能にする MCP (Model Context Prot
 
 ## 提供する MCP ツール
 
-4 系統のツール群があります。`set_property` を除くすべてのツールは読み取り専用（`ReadOnlyHint: true`）です:
+4 系統のツール群があります。機器へ書き込む `set_property` と `render_smartmeter_ui` を除くすべてのツールは読み取り専用（`ReadOnlyHint: true`）です:
 
 - **仕様検索** — 埋め込み (`//go:embed`) MRA JSON をプロセス内で検索 (外部通信なし)
 - **機器通信** — LAN 上の ECHONET Lite 機器へ UDP で問い合わせ
@@ -70,7 +70,7 @@ ECHONET Lite Appendix の公式機械可読版 [MRA (Machine Readable Appendix)]
 | `render_solar_ui` | 住宅用太陽光発電(EOJ `0279xx`)の稼働状態・瞬時発電電力・積算発電/売電電力量・系統連系状態・出力抑制状態を表示。読み取り専用 |
 | `render_v2h_ui` | V2H(EOJ `027Exx`)の稼働状態・運転モード・車載電池残容量・充放電電力・積算充放電電力量・車両接続状態を表示。稼働状態と運転モードを操作可能 |
 | `render_aircon_ui` | 家庭用エアコン(EOJ `0130xx`)の稼働状態・運転モード・設定温度・室内温度・風量を表示。稼働状態・運転モード・設定温度・風量を操作可能 |
-| `render_smartmeter_ui` | 低圧スマート電力量メータ(EOJ `0288xx`)の稼働状態・瞬時電力・瞬時電流・積算電力量と、`date`(省略時は今日)で指定した日の 30 分毎の買電/売電電力量をグラフ/表で表示。前日/翌日へ移動可能。履歴の取得時に積算履歴収集日(EPC `E5`)を書き換え、取得後に元の値へ戻す |
+| `render_smartmeter_ui` | 低圧スマート電力量メータ(EOJ `0288xx`)の稼働状態・瞬時電力・瞬時電流・積算電力量と、`date`(省略時は今日)で指定した日の 30 分毎の買電/売電電力量をグラフ/表で表示。前日/翌日へ移動可能。履歴の取得時に積算履歴収集日(EPC `E5`)を書き換え、取得後に元の値へ戻す（`ReadOnlyHint: false` / `DestructiveHint: false`） |
 
 MCP Apps 未対応のクライアント（Claude Code CLI など）では、通常のツール同様に JSON がそのまま返ります。
 

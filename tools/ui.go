@@ -170,6 +170,7 @@ func registerUITools(s *mcp.Server) {
 		},
 	}, renderAirconUI)
 
+	nonDestructive := false
 	s.AddResource(&mcp.Resource{
 		URI:      smartmeterDashboardURI,
 		Name:     "smartmeter_dashboard",
@@ -179,8 +180,14 @@ func registerUITools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "render_smartmeter_ui",
-		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))と、指定日(dateで指定、省略時は今日)の30分毎の買電/売電電力量の履歴を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。履歴は棒グラフで表示され、ダッシュボード上の前日/翌日ボタンで表示日を切り替えられます(内部でrender_smartmeter_uiを再度呼び出します)。履歴の読み出しには積算履歴収集日(EPC E5)への書き込みが必要ですが、取得後に元の値へ戻します。このダッシュボードは操作系のコントロールを持たない読み取り専用ダッシュボードです。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))と、指定日(dateで指定、省略時は今日)の30分毎の買電/売電電力量の履歴を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。履歴は棒グラフで表示され、ダッシュボード上の前日/翌日ボタンで表示日を切り替えられます(内部でrender_smartmeter_uiを再度呼び出します)。履歴の読み出しには積算履歴収集日(EPC E5)への書き込みが必要ですが、取得後に元の値へ戻します。このダッシュボードは操作系のコントロールを持ちません。",
+		// Not read-only: reading the history requires a SetC to EPC E5, so
+		// clients must not run this tool without confirmation. The original E5
+		// value is restored afterwards, hence non-destructive.
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: &nonDestructive,
+		},
 		Meta: mcp.Meta{
 			"ui": map[string]any{
 				"resourceUri": smartmeterDashboardURI,
