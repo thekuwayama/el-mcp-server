@@ -2,6 +2,10 @@ package tools
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -133,5 +137,101 @@ func TestSmartmeterUIStateSinglePhaseCurrents(t *testing.T) {
 	}
 	if strings.Contains(got, "instantaneous_t_phase_a") {
 		t.Errorf("state JSON %s should omit the T phase", got)
+	}
+}
+
+func TestDashboardHTMLInjectsCommonJS(t *testing.T) {
+	for name, html := range dashboardHTMLs() {
+		if strings.Contains(html, commonJSPlaceholder) {
+			t.Errorf("%s: placeholder %q remains", name, commonJSPlaceholder)
+		}
+		if strings.Count(html, dashboardCommonJS) != 1 {
+			t.Errorf("%s: common script is not inlined exactly once", name)
+		}
+		scripts := extractScripts(html)
+		if len(scripts) != 2 {
+			t.Fatalf("%s: got %d <script> elements, want 2 (common + device)", name, len(scripts))
+		}
+		// The device script calls ElMcpApp.start, so the common script must
+		// come first.
+		if !strings.Contains(scripts[0], "var ElMcpApp =") {
+			t.Errorf("%s: first <script> is not the common script", name)
+		}
+		if !strings.Contains(scripts[1], "ElMcpApp.start(") {
+			t.Errorf("%s: device <script> does not call ElMcpApp.start", name)
+		}
+	}
+}
+
+func TestInjectCommonJS(t *testing.T) {
+	const js = "var x = 1;\n"
+	got, err := injectCommonJS("<body>"+commonJSPlaceholder+"</body>", js)
+	if err != nil {
+		t.Fatalf("injectCommonJS: %v", err)
+	}
+	if want := "<body><script>\nvar x = 1;\n</script></body>"; got != want {
+		t.Errorf("injectCommonJS = %q, want %q", got, want)
+	}
+
+	errCases := []struct {
+		name, tmpl, js string
+	}{
+		{name: "no placeholder", tmpl: "<body></body>", js: js},
+		{name: "duplicate placeholder", tmpl: commonJSPlaceholder + commonJSPlaceholder, js: js},
+		{name: "closing script tag in js", tmpl: commonJSPlaceholder, js: "var s = '</SCRIPT>';"},
+	}
+	for _, tt := range errCases {
+		if _, err := injectCommonJS(tt.tmpl, tt.js); err == nil {
+			t.Errorf("%s: injectCommonJS succeeded, want error", tt.name)
+		}
+	}
+}
+
+// TestDashboardScriptsSyntax runs `node --check` on every inline script of the
+// served dashboards. It is skipped when node is not installed.
+func TestDashboardScriptsSyntax(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found in PATH")
+	}
+	dir := t.TempDir()
+	for name, html := range dashboardHTMLs() {
+		for i, script := range extractScripts(html) {
+			path := filepath.Join(dir, fmt.Sprintf("%s-%d.js", name, i))
+			if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command(node, "--check", path).CombinedOutput(); err != nil {
+				t.Errorf("%s script #%d: node --check failed: %v\n%s", name, i, err, out)
+			}
+		}
+	}
+}
+
+func dashboardHTMLs() map[string]string {
+	return map[string]string{
+		"battery":    batteryDashboardHTML,
+		"solar":      solarDashboardHTML,
+		"v2h":        v2hDashboardHTML,
+		"aircon":     airconDashboardHTML,
+		"smartmeter": smartmeterDashboardHTML,
+	}
+}
+
+// extractScripts returns the bodies of the <script> elements in html.
+func extractScripts(html string) []string {
+	var scripts []string
+	for {
+		start := strings.Index(html, "<script>")
+		if start < 0 {
+			return scripts
+		}
+		html = html[start+len("<script>"):]
+		end := strings.Index(html, "</script>")
+		if end < 0 {
+			return scripts
+		}
+		scripts = append(scripts, html[:end])
+		html = html[end+len("</script>"):]
 	}
 }
