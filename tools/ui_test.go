@@ -3,11 +3,80 @@ package tools
 import (
 	"encoding/json"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/thekuwayama/el-mcp-server/tools/ui"
 )
+
+// TestLockSmartmeterHistorySerializesSameMeter checks that concurrent holders
+// of the lock for the same meter never overlap, so the get/set/restore
+// sequence on EPC 0xE5 in fetchSmartmeterHistory can't interleave.
+func TestLockSmartmeterHistorySerializesSameMeter(t *testing.T) {
+	const goroutines = 8
+	var active, maxActive atomic.Int32
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			unlock := lockSmartmeterHistory("192.0.2.1", 0x028801)
+			defer unlock()
+			n := active.Add(1)
+			for {
+				m := maxActive.Load()
+				if n <= m || maxActive.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			active.Add(-1)
+		}()
+	}
+	wg.Wait()
+	if got := maxActive.Load(); got != 1 {
+		t.Errorf("max concurrent holders = %d, want 1", got)
+	}
+}
+
+// TestLockSmartmeterHistoryIndependentMeters checks that meters with a
+// different IP or EOJ don't block each other.
+func TestLockSmartmeterHistoryIndependentMeters(t *testing.T) {
+	// On failure the lock is left held; the keys are unique to this test.
+	unlock := lockSmartmeterHistory("192.0.2.2", 0x028801)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		lockSmartmeterHistory("192.0.2.3", 0x028801)()
+		lockSmartmeterHistory("192.0.2.2", 0x028802)()
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("lock for a different meter blocked on a held lock")
+	}
+
+	// The same meter must wait until the held lock is released.
+	acquired := make(chan struct{})
+	go func() {
+		lockSmartmeterHistory("192.0.2.2", 0x028801)()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("lock for the same meter was acquired while held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("lock for the same meter was not acquired after release")
+	}
+}
 
 func TestParseHistoryDate(t *testing.T) {
 	jst := time.FixedZone("JST", 9*60*60)
