@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -173,9 +174,14 @@ func parseHexByte(s string) (byte, error) {
 	return b[0], nil
 }
 
+// errHexTooLong is returned by parseHexBytes when the decoded value does not
+// fit in a single property's EDT.
+var errHexTooLong = errors.New("hex string too long")
+
 // parseHexBytes decodes a whitespace-separated or contiguous hex string (e.g.
 // "30" or "FF 01") into a byte slice. Every character other than the spaces
-// must be a hex digit.
+// must be a hex digit, and the result must fit in a single property's EDT
+// (at most echonet.MaxPDC bytes); a longer value yields errHexTooLong.
 func parseHexBytes(s string) ([]byte, error) {
 	hexStr := strings.ReplaceAll(strings.TrimSpace(s), " ", "")
 	if hexStr == "" {
@@ -183,6 +189,9 @@ func parseHexBytes(s string) ([]byte, error) {
 	}
 	if len(hexStr)%2 != 0 {
 		return nil, fmt.Errorf("odd-length hex string: %s", s)
+	}
+	if n := len(hexStr) / 2; n > echonet.MaxPDC {
+		return nil, fmt.Errorf("%w: %d bytes (max %d)", errHexTooLong, n, echonet.MaxPDC)
 	}
 	edt, err := hex.DecodeString(hexStr)
 	if err != nil {

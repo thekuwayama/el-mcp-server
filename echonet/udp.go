@@ -33,6 +33,11 @@ func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
 		return nil, fmt.Errorf("invalid IP address: %s", ip)
 	}
 
+	data, err := frame.Encode()
+	if err != nil {
+		return nil, fmt.Errorf("encode frame: %w", err)
+	}
+
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: UDPPort})
 	if err != nil {
 		return nil, fmt.Errorf("listen udp :%d: %w", UDPPort, err)
@@ -44,7 +49,7 @@ func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
 		return nil, err
 	}
 
-	if _, err := conn.WriteToUDP(frame.Encode(), raddr); err != nil {
+	if _, err := conn.WriteToUDP(data, raddr); err != nil {
 		return nil, fmt.Errorf("write udp: %w", err)
 	}
 
@@ -113,7 +118,11 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		IP:   net.ParseIP(MulticastAddr),
 		Port: UDPPort,
 	}
-	if _, err := conn.WriteTo(frame.Encode(), dst); err != nil {
+	data, err := frame.Encode()
+	if err != nil {
+		return nil, fmt.Errorf("encode frame: %w", err)
+	}
+	if _, err := conn.WriteTo(data, dst); err != nil {
 		return nil, fmt.Errorf("multicast write: %w", err)
 	}
 

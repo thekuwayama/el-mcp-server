@@ -2,6 +2,8 @@ package tools
 
 import (
 	"bytes"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +55,25 @@ func TestParseHexBytes(t *testing.T) {
 	for _, in := range invalid {
 		if got, err := parseHexBytes(in); err == nil {
 			t.Errorf("parseHexBytes(%q) = % X, want error", in, got)
+		}
+	}
+}
+
+func TestParseHexBytesLengthLimit(t *testing.T) {
+	maxLen := strings.Repeat("AB", 255)
+	got, err := parseHexBytes(maxLen)
+	if err != nil || len(got) != 255 {
+		t.Errorf("parseHexBytes(255 bytes) = (%d bytes, %v), want (255 bytes, nil)", len(got), err)
+	}
+
+	spaced := strings.TrimSpace(strings.Repeat("AB ", 255))
+	if got, err := parseHexBytes(spaced); err != nil || len(got) != 255 {
+		t.Errorf("parseHexBytes(255 space-separated bytes) = (%d bytes, %v), want (255 bytes, nil)", len(got), err)
+	}
+
+	for _, in := range []string{strings.Repeat("AB", 256), strings.Repeat("AB ", 256), strings.Repeat("AB", 1000)} {
+		if _, err := parseHexBytes(in); !errors.Is(err, errHexTooLong) {
+			t.Errorf("parseHexBytes(%d chars) error = %v, want errHexTooLong", len(in), err)
 		}
 	}
 }
