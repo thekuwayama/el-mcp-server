@@ -110,12 +110,11 @@ func convertDevice(dev mraDevice) DeviceClass {
 		panic(fmt.Sprintf("spec: invalid eoj %q: %v", dev.EOJ, err))
 	}
 	return DeviceClass{
-		GroupCode:   byte(code >> 8),
-		ClassCode:   byte(code),
-		NameJP:      dev.ClassName.Ja,
-		NameEN:      dev.ClassName.En,
-		Description: dev.ClassName.En,
-		EPCs:        convertEPCs(dev.ElProperties),
+		GroupCode: byte(code >> 8),
+		ClassCode: byte(code),
+		NameJP:    dev.ClassName.Ja,
+		NameEN:    dev.ClassName.En,
+		EPCs:      convertEPCs(dev.ElProperties),
 	}
 }
 
@@ -155,25 +154,27 @@ func resolveData(raw json.RawMessage) mraData {
 	if err := json.Unmarshal(raw, &d); err != nil {
 		panic(fmt.Sprintf("spec: parse data: %v", err))
 	}
-	if d.Ref != "" {
-		name := d.Ref[strings.LastIndex(d.Ref, "/")+1:]
-		def, ok := mraDefinitions[name]
-		if !ok {
-			panic(fmt.Sprintf("spec: unknown definition %q", name))
-		}
-		return resolveData(def)
+	return resolveRef(d)
+}
+
+// resolveRef follows d's $ref into the MRA definitions, if any.
+func resolveRef(d mraData) mraData {
+	if d.Ref == "" {
+		return d
 	}
-	return d
+	name := d.Ref[strings.LastIndex(d.Ref, "/")+1:]
+	def, ok := mraDefinitions[name]
+	if !ok {
+		panic(fmt.Sprintf("spec: unknown definition %q", name))
+	}
+	return resolveData(def)
 }
 
 func dataTypeString(d mraData) string {
 	if len(d.OneOf) > 0 {
 		parts := make([]string, 0, len(d.OneOf))
 		for _, sub := range d.OneOf {
-			if sub.Ref != "" {
-				sub = resolveData(json.RawMessage(mustMarshal(sub)))
-			}
-			parts = append(parts, dataTypeString(sub))
+			parts = append(parts, dataTypeString(resolveRef(sub)))
 		}
 		return strings.Join(parts, " | ")
 	}
@@ -197,21 +198,10 @@ func dataTypeString(d mraData) string {
 	}
 }
 
-func mustMarshal(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(fmt.Sprintf("spec: marshal: %v", err))
-	}
-	return b
-}
-
 func unitString(d mraData) string {
 	if d.Unit == "" {
 		for _, sub := range d.OneOf {
-			if sub.Ref != "" {
-				sub = resolveData(json.RawMessage(mustMarshal(sub)))
-			}
-			if u := unitString(sub); u != "" {
+			if u := unitString(resolveRef(sub)); u != "" {
 				return u
 			}
 		}

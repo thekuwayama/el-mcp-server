@@ -4,12 +4,11 @@ import "fmt"
 
 // DeviceClass represents an ECHONET Lite device object class.
 type DeviceClass struct {
-	GroupCode   byte
-	ClassCode   byte
-	NameJP      string
-	NameEN      string
-	Description string
-	EPCs        []EPCDef
+	GroupCode byte
+	ClassCode byte
+	NameJP    string
+	NameEN    string
+	EPCs      []EPCDef
 }
 
 // EOJHex returns the EOJ class code as a 4-character hex string (e.g. "0130").
