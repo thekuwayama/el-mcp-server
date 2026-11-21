@@ -39,11 +39,10 @@ type searchDeviceClassParams struct {
 }
 
 type deviceClassResult struct {
-	EOJ         string `json:"eoj"`
-	NameJP      string `json:"name_jp"`
-	NameEN      string `json:"name_en"`
-	Description string `json:"description"`
-	EPCCount    int    `json:"epc_count"`
+	EOJ      string `json:"eoj"`
+	NameJP   string `json:"name_jp"`
+	NameEN   string `json:"name_en"`
+	EPCCount int    `json:"epc_count"`
 }
 
 func searchDeviceClass(_ context.Context, _ *mcp.CallToolRequest, params *searchDeviceClassParams) (*mcp.CallToolResult, any, error) {
@@ -54,14 +53,12 @@ func searchDeviceClass(_ context.Context, _ *mcp.CallToolRequest, params *search
 		eojHex := cls.EOJHex()
 		if strings.Contains(strings.ToUpper(cls.NameJP), q) ||
 			strings.Contains(strings.ToUpper(cls.NameEN), q) ||
-			strings.Contains(strings.ToUpper(cls.Description), q) ||
 			strings.Contains(eojHex, q) {
 			results = append(results, deviceClassResult{
-				EOJ:         eojHex,
-				NameJP:      cls.NameJP,
-				NameEN:      cls.NameEN,
-				Description: cls.Description,
-				EPCCount:    len(cls.EPCs) + len(superClassEPCsFor(cls)),
+				EOJ:      eojHex,
+				NameJP:   cls.NameJP,
+				NameEN:   cls.NameEN,
+				EPCCount: len(cls.EPCs) + len(superClassEPCsFor(cls)),
 			})
 		}
 	}
