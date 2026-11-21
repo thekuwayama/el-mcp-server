@@ -1,6 +1,7 @@
 package echonet
 
 import (
+	"bytes"
 	"net"
 	"reflect"
 	"testing"
@@ -100,5 +101,123 @@ func TestIsMulticastCandidate(t *testing.T) {
 				t.Errorf("isMulticastCandidate(%v) = %v, want %v", c.flags, got, c.want)
 			}
 		})
+	}
+}
+
+func TestNewGetRequestMultipleEPCs(t *testing.T) {
+	frame := NewGetRequest(0x1234, 0x027E01, 0x80, 0xDA, 0xE4)
+	want := []byte{
+		0x10, 0x81, // EHD
+		0x12, 0x34, // TID
+		0x05, 0xFF, 0x01, // SEOJ (controller)
+		0x02, 0x7E, 0x01, // DEOJ
+		0x62,       // ESV Get
+		0x03,       // OPC
+		0x80, 0x00, // EPC, PDC
+		0xDA, 0x00,
+		0xE4, 0x00,
+	}
+	got, err := frame.Encode()
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("Encode() = % X, want % X", got, want)
+	}
+}
+
+func TestParseGetResponse(t *testing.T) {
+	epcs := []byte{0x80, 0xDA, 0xE4}
+
+	tests := []struct {
+		name    string
+		data    []byte
+		want    map[byte][]byte
+		wantErr bool
+	}{
+		{
+			name: "Get_Res with all EPCs",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x7E, 0x01, 0x05, 0xFF, 0x01,
+				0x72, 0x03,
+				0x80, 0x01, 0x30,
+				0xDA, 0x01, 0x42,
+				0xE4, 0x01, 0x50,
+			},
+			want: map[byte][]byte{0x80: {0x30}, 0xDA: {0x42}, 0xE4: {0x50}},
+		},
+		{
+			name: "Get_SNA omits EPCs with PDC 0",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x7E, 0x01, 0x05, 0xFF, 0x01,
+				0x52, 0x03,
+				0x80, 0x01, 0x30,
+				0xDA, 0x00,
+				0xE4, 0x01, 0x50,
+			},
+			want: map[byte][]byte{0x80: {0x30}, 0xE4: {0x50}},
+		},
+		{
+			name: "Get_SNA with no readable EPC",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x7E, 0x01, 0x05, 0xFF, 0x01,
+				0x52, 0x03,
+				0x80, 0x00,
+				0xDA, 0x00,
+				0xE4, 0x00,
+			},
+			want: map[byte][]byte{},
+		},
+		{
+			name: "EPCs not requested are ignored",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x7E, 0x01, 0x05, 0xFF, 0x01,
+				0x72, 0x02,
+				0x80, 0x01, 0x30,
+				0x9F, 0x01, 0x00,
+			},
+			want: map[byte][]byte{0x80: {0x30}},
+		},
+		{
+			name: "unexpected ESV",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x7E, 0x01, 0x05, 0xFF, 0x01,
+				0x71, 0x01,
+				0x80, 0x00,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := Decode(tt.data)
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			got, err := parseGetResponse(resp, epcs)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseGetResponse() = %v, want error", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseGetResponse() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseGetResponse() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPropertiesNoEPCs(t *testing.T) {
+	got, err := GetProperties("192.0.2.1", 0x027E01, 0)
+	if err != nil {
+		t.Fatalf("GetProperties() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("GetProperties() = %v, want empty", got)
 	}
 }

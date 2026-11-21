@@ -304,3 +304,45 @@ func extractScripts(html string) []string {
 		html = html[end+len("</script>"):]
 	}
 }
+
+func TestGetStringAndGetPtr(t *testing.T) {
+	props := map[byte][]byte{
+		ui.OperatingStatusEPC:          {0x30},
+		ui.RemainingCapacityPercentEPC: {0xFF}, // out of range: decode fails
+		ui.ChargeDischargePowerEPC:     {0x00, 0x00, 0x01, 0xF4},
+	}
+
+	if got := getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus); got != "稼働中" {
+		t.Errorf("getString(0x80) = %q, want %q", got, "稼働中")
+	}
+	if got := getString(props, ui.OperationModeEPC, ui.DecodeOperationMode); got != "" {
+		t.Errorf("getString(missing EPC) = %q, want empty", got)
+	}
+	if got := getPtr(props, ui.ChargeDischargePowerEPC, ui.DecodeSignedPowerW); got == nil || *got != 500 {
+		t.Errorf("getPtr(0xD3) = %v, want 500", got)
+	}
+	if got := getPtr(props, ui.RemainingCapacityPercentEPC, ui.DecodePercent); got != nil {
+		t.Errorf("getPtr(undecodable) = %v, want nil", *got)
+	}
+
+	// A failed Get yields a nil map; every field must then be left empty.
+	if got := getString(nil, ui.OperatingStatusEPC, ui.DecodeOperatingStatus); got != "" {
+		t.Errorf("getString(nil props) = %q, want empty", got)
+	}
+	if got := getPtr(nil, ui.ChargeDischargePowerEPC, ui.DecodeSignedPowerW); got != nil {
+		t.Errorf("getPtr(nil props) = %v, want nil", *got)
+	}
+}
+
+func TestGetEnum(t *testing.T) {
+	props := map[byte][]byte{ui.OperationModeEPC: {0x42}}
+	if label, code := getEnum(props, ui.OperationModeEPC, ui.DecodeOperationMode); label == "" || code != "42" {
+		t.Errorf("getEnum(0x42) = (%q, %q), want a label and code %q", label, code, "42")
+	}
+	if label, code := getEnum(props, ui.AirFlowLevelEPC, ui.DecodeAirFlowLevel); label != "" || code != "" {
+		t.Errorf("getEnum(missing EPC) = (%q, %q), want empty", label, code)
+	}
+	if label, code := getEnum(nil, ui.OperationModeEPC, ui.DecodeOperationMode); label != "" || code != "" {
+		t.Errorf("getEnum(nil props) = (%q, %q), want empty", label, code)
+	}
+}

@@ -232,6 +232,52 @@ func GetProperty(ip string, eoj uint32, epc byte, timeout time.Duration) ([]byte
 	return nil, fmt.Errorf("EPC %02X not found in response", epc)
 }
 
+// GetProperties retrieves several EPC values from a device with a single
+// unicast Get (OPC = len(epcs)), so an unreachable device costs one timeout
+// instead of one per EPC. The returned map holds only the EPCs the device
+// actually returned; with Get_SNA, EPCs it could not read (PDC = 0) are
+// omitted. An error is returned only when no usable response was received.
+func GetProperties(ip string, eoj uint32, timeout time.Duration, epcs ...byte) (map[byte][]byte, error) {
+	if len(epcs) == 0 {
+		return map[byte][]byte{}, nil
+	}
+	if len(epcs) > MaxOPC {
+		return nil, fmt.Errorf("too many EPCs in one Get: %d", len(epcs))
+	}
+	tid := nextTID()
+	req := NewGetRequest(tid, eoj, epcs...)
+	resp, err := Send(ip, req, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return parseGetResponse(resp, epcs)
+}
+
+// parseGetResponse extracts the requested EPC values from a Get_Res or
+// Get_SNA response. In Get_SNA, a property with an empty EDT (PDC = 0) marks
+// an EPC the device could not read, so it is left out of the result; EPCs
+// that were not requested are ignored as well.
+func parseGetResponse(resp *Frame, epcs []byte) (map[byte][]byte, error) {
+	if resp.ESV != ESVGetRes && resp.ESV != ESVGetSNA {
+		return nil, fmt.Errorf("unexpected ESV: %02X", resp.ESV)
+	}
+	requested := make(map[byte]bool, len(epcs))
+	for _, epc := range epcs {
+		requested[epc] = true
+	}
+	props := make(map[byte][]byte, len(resp.Props))
+	for _, p := range resp.Props {
+		if !requested[p.EPC] {
+			continue
+		}
+		if resp.ESV == ESVGetSNA && len(p.EDT) == 0 {
+			continue
+		}
+		props[p.EPC] = p.EDT
+	}
+	return props, nil
+}
+
 // SetProperty writes a single EPC value to a device via unicast UDP SetC,
 // waiting for the device's Set_Res (success) or SetC_SNA (failure) response.
 func SetProperty(ip string, eoj uint32, epc byte, edt []byte, timeout time.Duration) error {
