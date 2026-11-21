@@ -81,3 +81,65 @@ func TestToolAnnotations(t *testing.T) {
 		}
 	}
 }
+
+// TestUIToolResources checks that every render_*_ui tool points at a
+// registered ui:// dashboard resource served as an MCP Apps HTML document.
+func TestUIToolResources(t *testing.T) {
+	cs := newRegisteredClientSession(t)
+	ctx := context.Background()
+
+	rl, err := cs.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListResources() error = %v", err)
+	}
+	resources := map[string]*mcp.Resource{}
+	for _, r := range rl.Resources {
+		resources[r.URI] = r
+	}
+
+	tl, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	got := map[string]string{}
+	for _, tool := range tl.Tools {
+		uiMeta, ok := tool.Meta["ui"].(map[string]any)
+		if !ok {
+			continue
+		}
+		uri, _ := uiMeta["resourceUri"].(string)
+		got[tool.Name] = uri
+	}
+
+	want := map[string]string{
+		"render_battery_ui":    batteryDashboardURI,
+		"render_solar_ui":      solarDashboardURI,
+		"render_v2h_ui":        v2hDashboardURI,
+		"render_aircon_ui":     airconDashboardURI,
+		"render_smartmeter_ui": smartmeterDashboardURI,
+	}
+	if len(got) != len(want) {
+		t.Errorf("tools with _meta.ui = %v, want %v", got, want)
+	}
+	for name, uri := range want {
+		if got[name] != uri {
+			t.Errorf("%s: _meta.ui.resourceUri = %q, want %q", name, got[name], uri)
+		}
+		r, ok := resources[uri]
+		if !ok {
+			t.Errorf("%s: resource %s is not registered", name, uri)
+			continue
+		}
+		if r.MIMEType != MCPAppsUIMimeType {
+			t.Errorf("%s: MIMEType = %q, want %q", uri, r.MIMEType, MCPAppsUIMimeType)
+		}
+		rr, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
+		if err != nil {
+			t.Errorf("ReadResource(%s) error = %v", uri, err)
+			continue
+		}
+		if len(rr.Contents) != 1 || rr.Contents[0].Text == "" || rr.Contents[0].MIMEType != MCPAppsUIMimeType {
+			t.Errorf("ReadResource(%s) returned unexpected contents", uri)
+		}
+	}
+}
