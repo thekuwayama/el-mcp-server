@@ -115,7 +115,7 @@ func getProperty(ctx context.Context, _ *mcp.CallToolRequest, params *getPropert
 	result := propertyValue{
 		IP:       params.IP,
 		EOJ:      formatEOJ(eoj),
-		EPC:      strings.ToUpper(params.EPC),
+		EPC:      formatEPC(epcCode),
 		EDTHex:   hexJoin(edt),
 		EDTBytes: len(edt),
 	}
@@ -156,7 +156,7 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 		return errorResult(fmt.Sprintf("EDTの形式が正しくありません: %s", params.EDT)), nil, nil
 	}
 
-	confirmed, err := confirmPropertyWrite(ctx, req.Session, params.IP, formatEOJ(eoj), params.EPC, hexJoin(edt))
+	confirmed, err := confirmPropertyWrite(ctx, req.Session, params.IP, formatEOJ(eoj), formatEPC(epcCode), hexJoin(edt))
 	if err != nil {
 		return errorResult(fmt.Sprintf("書き込み確認エラー: %v", err)), nil, nil
 	}
@@ -171,7 +171,7 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 	return jsonResult(setPropertyResult{
 		IP:     params.IP,
 		EOJ:    formatEOJ(eoj),
-		EPC:    strings.ToUpper(params.EPC),
+		EPC:    formatEPC(epcCode),
 		EDTHex: hexJoin(edt),
 		Status: "success",
 	})
