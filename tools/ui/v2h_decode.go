@@ -42,6 +42,12 @@ func DecodeV2HOperationMode(edt []byte) (string, bool) {
 	return decodeStateEnum(edt, v2hOperationModeNames)
 }
 
+// V2HOperationModeOptions lists the EPC 0xDA values DecodeV2HOperationMode
+// knows, for the V2H dashboard's operation-mode selector.
+func V2HOperationModeOptions() []EnumOption {
+	return enumOptions(v2hOperationModeNames)
+}
+
 // DecodeVehicleConnectionStatus decodes EPC 0xC7 (1 byte state enum) into a Japanese label.
 func DecodeVehicleConnectionStatus(edt []byte) (string, bool) {
 	return decodeStateEnum(edt, vehicleConnectionStatusNames)

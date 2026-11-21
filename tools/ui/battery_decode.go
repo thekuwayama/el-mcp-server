@@ -27,6 +27,12 @@ func DecodeOperationMode(edt []byte) (string, bool) {
 	return decodeStateEnum(edt, operationModeNames)
 }
 
+// OperationModeOptions lists the EPC 0xDA values DecodeOperationMode knows,
+// for the battery dashboard's operation-mode selector.
+func OperationModeOptions() []EnumOption {
+	return enumOptions(operationModeNames)
+}
+
 // DecodePercent decodes a 1-byte unsigned percentage value (0-100), used by EPC 0xE4.
 func DecodePercent(edt []byte) (int, bool) {
 	if len(edt) != 1 || edt[0] > 100 {

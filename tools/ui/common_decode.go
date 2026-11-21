@@ -1,6 +1,9 @@
 package ui
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // OperatingStatusEPC (0x80) is the superclass "operation status" property
 // shared by every ECHONET Lite device class covered here.
@@ -33,4 +36,35 @@ func decodeStateEnum(edt []byte, names map[byte]string) (string, bool) {
 		return name, true
 	}
 	return fmt.Sprintf("不明(0x%02X)", edt[0]), true
+}
+
+// EnumOption is one value of a 1-byte state-enum property: its EDT as a
+// two-digit uppercase hex code (the same form set_property's edt takes) and
+// its Japanese label. It marshals to ["<code>", "<label>"], the shape the
+// dashboards use to build <select> options.
+type EnumOption [2]string
+
+// EnumCode formats a 1-byte state-enum EDT as a two-digit uppercase hex code,
+// the form EnumOption and the dashboards' *_code fields use.
+func EnumCode(edt []byte) (string, bool) {
+	if len(edt) != 1 {
+		return "", false
+	}
+	return fmt.Sprintf("%02X", edt[0]), true
+}
+
+// enumOptions lists names as EnumOptions in ascending EDT order, so the
+// dashboards are fed from the same table the decoders use.
+func enumOptions(names map[byte]string) []EnumOption {
+	codes := make([]byte, 0, len(names))
+	for code := range names {
+		codes = append(codes, code)
+	}
+	slices.Sort(codes)
+	opts := make([]EnumOption, 0, len(codes))
+	for _, code := range codes {
+		c, _ := EnumCode([]byte{code})
+		opts = append(opts, EnumOption{c, names[code]})
+	}
+	return opts
 }
