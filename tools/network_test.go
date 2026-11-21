@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -109,6 +110,24 @@ func TestConfirmPropertyWrite(t *testing.T) {
 		}
 		if confirmed {
 			t.Errorf("confirmPropertyWrite() = true, want false")
+		}
+	})
+
+	t.Run("message shows the formatted EPC", func(t *testing.T) {
+		var msg string
+		session := newTestSession(t, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			msg = req.Params.Message
+			return &mcp.ElicitResult{Action: "decline"}, nil
+		})
+		_, epc, errRes := parseEOJAndEPC("013001", " b0 ")
+		if errRes != nil {
+			t.Fatal("parseEOJAndEPC() returned an error result")
+		}
+		if _, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "013001", formatEPC(epc), "41"); err != nil {
+			t.Fatalf("confirmPropertyWrite() error = %v", err)
+		}
+		if !strings.Contains(msg, "EPC B0 に") {
+			t.Errorf("elicitation message = %q, want it to contain %q", msg, "EPC B0 に")
 		}
 	})
 

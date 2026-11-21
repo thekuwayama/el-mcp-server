@@ -317,3 +317,28 @@ func TestFormatEOJ(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatEPC(t *testing.T) {
+	// get_property / set_property echo the EPC back as 2-digit uppercase hex
+	// parsed from the input, not the raw input string (which may carry
+	// surrounding whitespace or lowercase digits).
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"B0", "B0"},
+		{"b0", "B0"},
+		{" b0 ", "B0"},
+		{"8a", "8A"},
+		{"\t80\n", "80"},
+	}
+	for _, c := range cases {
+		_, epc, errRes := parseEOJAndEPC("013001", c.in)
+		if errRes != nil {
+			t.Fatalf("parseEOJAndEPC(_, %q) returned an error result", c.in)
+		}
+		if got := formatEPC(epc); got != c.want {
+			t.Errorf("formatEPC(parseEOJAndEPC(_, %q)) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

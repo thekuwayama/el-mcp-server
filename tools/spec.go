@@ -264,6 +264,12 @@ func formatEOJ(eoj uint32) string {
 	return fmt.Sprintf("%06X", eoj)
 }
 
+// formatEPC renders epc as the 2-digit uppercase hex string used in tool
+// results, e.g. "B0", regardless of how the EPC was given as input.
+func formatEPC(epc byte) string {
+	return fmt.Sprintf("%02X", epc)
+}
+
 // hexJoin renders edt as a space-separated uppercase hex string, e.g. "30 01".
 func hexJoin(edt []byte) string {
 	parts := make([]string, len(edt))
