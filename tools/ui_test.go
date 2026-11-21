@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thekuwayama/el-mcp-server/echonet"
 	"github.com/thekuwayama/el-mcp-server/tools/ui"
 )
 
@@ -344,5 +347,61 @@ func TestGetEnum(t *testing.T) {
 	}
 	if label, code := getEnum(nil, ui.OperationModeEPC, ui.DecodeOperationMode); label != "" || code != "" {
 		t.Errorf("getEnum(nil props) = (%q, %q), want empty", label, code)
+	}
+}
+
+func TestEnergyLogFromGet(t *testing.T) {
+	// edt builds an EPC 0xE2/0xE4 EDT for collection day d whose slots all
+	// hold the reading 100.
+	edt := func(d int) []byte {
+		b := []byte{byte(d >> 8), byte(d)}
+		for range ui.SlotsPerDay {
+			b = append(b, 0x00, 0x00, 0x00, 0x64)
+		}
+		return b
+	}
+	getSNA := fmt.Errorf("device returned Get_SNA (EPC E4 %w)", echonet.ErrPropertyNotAvailable)
+
+	tests := []struct {
+		name    string
+		edt     []byte
+		err     error
+		wantLog bool
+		wantIs  error // the returned error must wrap this
+		wantErr bool
+	}{
+		{name: "valid log", edt: edt(2), wantLog: true},
+		{name: "Get_SNA is treated as not supported", err: getSNA},
+		{name: "timeout is an error", err: os.ErrDeadlineExceeded, wantIs: os.ErrDeadlineExceeded, wantErr: true},
+		{name: "canceled ctx is an error", err: context.Canceled, wantIs: context.Canceled, wantErr: true},
+		{name: "unexpected ESV is an error", err: errors.New("unexpected ESV: 71"), wantErr: true},
+		{name: "malformed EDT", edt: edt(2)[:10], wantErr: true},
+		{name: "day mismatch", edt: edt(3), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log, err := energyLogFromGet(0xE4, 2, tt.edt, tt.err)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("energyLogFromGet() = %v, want error", log)
+				}
+				if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+					t.Errorf("energyLogFromGet() error = %v, want it to wrap %v", err, tt.wantIs)
+				}
+				if log != nil {
+					t.Errorf("energyLogFromGet() log = %v, want nil with an error", log)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("energyLogFromGet() error = %v", err)
+			}
+			if (log != nil) != tt.wantLog {
+				t.Fatalf("energyLogFromGet() log = %v, want non-nil %v", log, tt.wantLog)
+			}
+			if log != nil && (log.Day != 2 || !log.Valid[0] || log.Readings[0] != 100) {
+				t.Errorf("energyLogFromGet() = day %d, slot 0 (%d %v), want day 2, slot 0 (100 true)", log.Day, log.Readings[0], log.Valid[0])
+			}
+		})
 	}
 }

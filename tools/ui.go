@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -737,17 +738,7 @@ func fetchSmartmeterHistory(ctx context.Context, ip string, eoj uint32, day *sma
 		}
 		read := func(epc byte) (*ui.EnergyLog, error) {
 			edt, err := echonet.GetProperty(ctx, ip, eoj, epc, timeout)
-			if err != nil {
-				return nil, nil // not supported (e.g. 0xE4 on an import-only meter)
-			}
-			log, ok := ui.DecodeEnergyLog(edt)
-			if !ok {
-				return nil, fmt.Errorf("EPC %02X の履歴データの形式が正しくありません", epc)
-			}
-			if log.Day != d {
-				return nil, fmt.Errorf("メーターが返した履歴の日付(%d日前)が要求した日付(%d日前)と一致しませんでした。メーターが積算履歴収集日(EPC E5)の指定に対応していない可能性があります", log.Day, d)
-			}
-			return &log, nil
+			return energyLogFromGet(epc, d, edt, err)
 		}
 		if imp, err = read(ui.NormalDirectionEnergyLogEPC); err != nil {
 			return nil, nil, err
@@ -765,11 +756,12 @@ func fetchSmartmeterHistory(ctx context.Context, ip string, eoj uint32, day *sma
 		return err
 	}
 	if importLog == nil && exportLog == nil {
-		return fmt.Errorf("積算電力量計測値履歴(EPC E2/E4)を取得できませんでした")
+		return fmt.Errorf("積算電力量計測値履歴(EPC E2/E4)を取得できませんでした: メーターが対応していません")
 	}
 
 	// The following day's log only contributes its 00:00 reading; if it can't
-	// be read, the 23:30 slot is simply left without data.
+	// be read for any reason (including a timeout), the 23:30 slot is simply
+	// left without data rather than failing the whole day.
 	var nextImport, nextExport *ui.EnergyLog
 	if daysAgo > 0 {
 		nextImport, nextExport, _ = readLogs(daysAgo-1, exportLog != nil)
@@ -799,6 +791,28 @@ func fetchSmartmeterHistory(ctx context.Context, ip string, eoj uint32, day *sma
 	day.TotalImportKWh = sumKWh(imports)
 	day.TotalExportKWh = sumKWh(exports)
 	return nil
+}
+
+// energyLogFromGet interprets the result (edt, err) of reading the energy log
+// EPC epc (0xE2 or 0xE4) after selecting collection day d. Only Get_SNA means
+// the meter doesn't support the log (e.g. 0xE4 on an import-only meter) and
+// yields (nil, nil); any other failure, such as a timeout or a canceled ctx,
+// is returned as an error so it isn't mistaken for "no data".
+func energyLogFromGet(epc byte, d int, edt []byte, err error) (*ui.EnergyLog, error) {
+	if errors.Is(err, echonet.ErrPropertyNotAvailable) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("積算電力量計測値履歴(EPC %02X)を取得できませんでした: %w", epc, err)
+	}
+	log, ok := ui.DecodeEnergyLog(edt)
+	if !ok {
+		return nil, fmt.Errorf("EPC %02X の履歴データの形式が正しくありません", epc)
+	}
+	if log.Day != d {
+		return nil, fmt.Errorf("メーターが返した履歴の日付(%d日前)が要求した日付(%d日前)と一致しませんでした。メーターが積算履歴収集日(EPC E5)の指定に対応していない可能性があります", log.Day, d)
+	}
+	return &log, nil
 }
 
 // sumKWh totals the slots that have data, returning nil when energies is nil

@@ -14,6 +14,12 @@ import (
 
 var tidCounter atomic.Uint32
 
+// ErrPropertyNotAvailable is wrapped by the error GetProperty returns when the
+// device answered Get_SNA, i.e. it does not support (or cannot currently
+// provide) the requested property. Callers can tell this apart from timeouts
+// and other failures with errors.Is.
+var ErrPropertyNotAvailable = errors.New("not available")
+
 func nextTID() uint16 {
 	return uint16(tidCounter.Add(1))
 }
@@ -266,8 +272,15 @@ func GetProperty(ctx context.Context, ip string, eoj uint32, epc byte, timeout t
 	if err != nil {
 		return nil, err
 	}
+	return parseGetPropertyResponse(resp, epc)
+}
+
+// parseGetPropertyResponse extracts the value of epc from the response to a
+// single-EPC Get. A Get_SNA response yields an error wrapping
+// ErrPropertyNotAvailable.
+func parseGetPropertyResponse(resp *Frame, epc byte) ([]byte, error) {
 	if resp.ESV == ESVGetSNA {
-		return nil, fmt.Errorf("device returned Get_SNA (EPC %02X not available)", epc)
+		return nil, fmt.Errorf("device returned Get_SNA (EPC %02X %w)", epc, ErrPropertyNotAvailable)
 	}
 	if resp.ESV != ESVGetRes {
 		return nil, fmt.Errorf("unexpected ESV: %02X", resp.ESV)
