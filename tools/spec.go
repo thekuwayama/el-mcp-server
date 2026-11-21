@@ -61,7 +61,7 @@ func searchDeviceClass(_ context.Context, _ *mcp.CallToolRequest, params *search
 				NameJP:      cls.NameJP,
 				NameEN:      cls.NameEN,
 				Description: cls.Description,
-				EPCCount:    len(cls.EPCs) + len(spec.SuperClassEPCs),
+				EPCCount:    len(cls.EPCs) + len(superClassEPCsFor(cls)),
 			})
 		}
 	}
@@ -101,7 +101,7 @@ func listEPC(_ context.Context, _ *mcp.CallToolRequest, params *listEPCParams) (
 	resp := response{
 		EOJ:        cls.EOJHex(),
 		NameJP:     cls.NameJP,
-		SuperClass: toEPCSummaries(spec.SuperClassEPCs),
+		SuperClass: toEPCSummaries(superClassEPCsFor(cls)),
 		ClassEPCs:  toEPCSummaries(cls.EPCs),
 	}
 	return jsonResult(resp)
@@ -128,21 +128,13 @@ func getEPCDetail(_ context.Context, _ *mcp.CallToolRequest, params *getEPCDetai
 		return errorResult(fmt.Sprintf("EPCの形式が正しくありません: %s", params.EPC)), nil, nil
 	}
 
-	// search in super class first
-	for _, e := range spec.SuperClassEPCs {
-		if e.Code == epcCode {
-			return jsonResult(toEPCDetail(e))
-		}
-	}
-
 	cls, ok := findClass(params.EOJ)
 	if !ok {
 		return errorResult(fmt.Sprintf("EOJ '%s' の機器クラスが見つかりません。", params.EOJ)), nil, nil
 	}
-	for _, e := range cls.EPCs {
-		if e.Code == epcCode {
-			return jsonResult(toEPCDetail(e))
-		}
+	e, ok := findEPC(cls, epcCode)
+	if ok {
+		return jsonResult(toEPCDetail(e))
 	}
 	return errorResult(fmt.Sprintf("EOJ %s に EPC %s が定義されていません。", params.EOJ, params.EPC)), nil, nil
 }
@@ -157,6 +149,38 @@ func findClass(eojHex string) (spec.DeviceClass, bool) {
 		}
 	}
 	return spec.DeviceClass{}, false
+}
+
+// findEPC looks up epc for cls. The device class definition takes precedence
+// over the super class one, because the MRA redefines some super class EPCs
+// per device class (e.g. 0x8F of 0x0130).
+func findEPC(cls spec.DeviceClass, epc byte) (spec.EPCDef, bool) {
+	for _, e := range cls.EPCs {
+		if e.Code == epc {
+			return e, true
+		}
+	}
+	for _, e := range spec.SuperClassEPCs {
+		if e.Code == epc {
+			return e, true
+		}
+	}
+	return spec.EPCDef{}, false
+}
+
+// superClassEPCsFor returns the super class EPCs that cls does not redefine.
+func superClassEPCsFor(cls spec.DeviceClass) []spec.EPCDef {
+	defined := make(map[byte]bool, len(cls.EPCs))
+	for _, e := range cls.EPCs {
+		defined[e.Code] = true
+	}
+	out := make([]spec.EPCDef, 0, len(spec.SuperClassEPCs))
+	for _, e := range spec.SuperClassEPCs {
+		if !defined[e.Code] {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // parseHexByte decodes exactly two hex digits (e.g. "B0" or "b0") into a
