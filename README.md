@@ -124,7 +124,7 @@ sequenceDiagram
 
 `discover_devices` / `get_property` / `set_property` が通信できるのは、el-mcp-server を起動したマシンが属する LAN 上の機器のみです。
 
-同一ホスト上で ECHONET Lite エミュレータと el-mcp-server を併用する場合、両者が UDP ポート 3610 を同時に占有できないため `discover_devices` は使用できません。エミュレータの IP（`127.0.0.1`）と EOJ があらかじめわかっている場合は、`discover_devices` を経由せず直接 `get_property` / `set_property` を呼び出してください。
+ECHONET Lite 機器は要求の送信元ポートにかかわらず UDP ポート 3610 へ応答を返すため、el-mcp-server は `discover_devices` だけでなく `get_property` / `set_property` / `render_*_ui` でも、ツール呼び出しのたびに UDP ポート 3610 を bind します（`SO_REUSEADDR` / `SO_REUSEPORT` は設定しません）。そのため、同一ホスト上で ECHONET Lite エミュレータなど UDP ポート 3610 を使うプロセスが動いていると、これらのツールはすべて `bind: address already in use` で失敗します。エミュレータと併用する場合は、エミュレータを別のホスト（同一 LAN 上の別マシンや、LAN 上に独自の IP アドレスを持つ VM など）で動かしてください。
 
 `set_property` は SetC のみに対応しています（応答を待たずに成否が確認できない SetI は未対応）。EPC が書き込み不可、または EDT の形式が不正な場合、機器は `SetC_SNA` を返し、ツールはエラーとして報告します。
 
