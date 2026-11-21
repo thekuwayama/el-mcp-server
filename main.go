@@ -12,9 +12,15 @@ import (
 	"github.com/thekuwayama/el-mcp-server/tools"
 )
 
+// defaultHTTPAddr is the default listen address for the HTTP transport. It is
+// bound to loopback only: the server has no authentication and set_property
+// changes real device state, so exposing it to the LAN must be an explicit
+// choice (e.g. -addr :8080).
+const defaultHTTPAddr = "127.0.0.1:8080"
+
 func main() {
 	transport := flag.String("transport", "stdio", "Transport type: stdio or http")
-	addr := flag.String("addr", ":8080", "Listen address for HTTP transport")
+	addr := flag.String("addr", defaultHTTPAddr, "Listen address for HTTP transport (use :8080 to listen on all interfaces; there is no authentication)")
 	flag.Parse()
 
 	server := mcp.NewServer(&mcp.Implementation{

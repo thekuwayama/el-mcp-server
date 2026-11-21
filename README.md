@@ -233,7 +233,7 @@ el-mcp-server
 HTTP モード（Streamable HTTP）
 
 ```bash
-el-mcp-server -transport http -addr :8080
+el-mcp-server -transport http
 ```
 
 ## データソース
