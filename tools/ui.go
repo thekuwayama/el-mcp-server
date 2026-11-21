@@ -150,8 +150,8 @@ func parseAndGuardEOJ(eojHex, toolName, deviceDesc string, groupCode, classCode 
 // offline device costs one timeout rather than one per EPC. It returns nil
 // (an empty lookup) when the request fails as a whole; EPCs the device
 // couldn't read (Get_SNA with PDC = 0) are simply absent from the map.
-func getProperties(ip string, eoj uint32, timeout time.Duration, epcs ...byte) map[byte][]byte {
-	props, err := echonet.GetProperties(ip, eoj, timeout, epcs...)
+func getProperties(ctx context.Context, ip string, eoj uint32, timeout time.Duration, epcs ...byte) map[byte][]byte {
+	props, err := echonet.GetProperties(ctx, ip, eoj, timeout, epcs...)
 	if err != nil {
 		return nil
 	}
@@ -343,7 +343,7 @@ type batteryUIState struct {
 	ChargeDischargePowerW    *int32 `json:"charge_discharge_power_w,omitempty"`
 }
 
-func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBatteryUIParams) (*mcp.CallToolResult, any, error) {
+func renderBatteryUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderBatteryUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_battery_ui", "蓄電池(EOJ 027Dxx)", 0x02, 0x7D)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -351,7 +351,7 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 
 	const timeout = 5 * time.Second
 
-	props := getProperties(params.IP, eoj, timeout,
+	props := getProperties(ctx, params.IP, eoj, timeout,
 		ui.OperatingStatusEPC, ui.OperationModeEPC, ui.RemainingCapacityPercentEPC, ui.ChargeDischargePowerEPC)
 
 	operationMode, operationModeCode := getEnum(props, ui.OperationModeEPC, ui.DecodeOperationMode)
@@ -389,7 +389,7 @@ type solarUIState struct {
 	OutputPowerRestraintStatus  string   `json:"output_power_restraint_status,omitempty"`
 }
 
-func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSolarUIParams) (*mcp.CallToolResult, any, error) {
+func renderSolarUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderSolarUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_solar_ui", "住宅用太陽光発電(EOJ 0279xx)", 0x02, 0x79)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -397,7 +397,7 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 
 	const timeout = 5 * time.Second
 
-	props := getProperties(params.IP, eoj, timeout,
+	props := getProperties(ctx, params.IP, eoj, timeout,
 		ui.OperatingStatusEPC, ui.InstantaneousElectricPowerGenerationEPC, ui.CumulativeElectricEnergyOfGenerationEPC,
 		ui.CumulativeElectricEnergySoldEPC, ui.SystemInterconnectionStatusEPC, ui.OutputPowerRestraintStatusEPC)
 
@@ -443,7 +443,7 @@ type v2hUIState struct {
 	VehicleConnectionStatus  string   `json:"vehicle_connection_status,omitempty"`
 }
 
-func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIParams) (*mcp.CallToolResult, any, error) {
+func renderV2HUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderV2HUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_v2h_ui", "V2H(電気自動車充放電器、EOJ 027Exx)", 0x02, 0x7E)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -451,7 +451,7 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 
 	const timeout = 5 * time.Second
 
-	props := getProperties(params.IP, eoj, timeout,
+	props := getProperties(ctx, params.IP, eoj, timeout,
 		ui.OperatingStatusEPC, ui.OperationModeEPC, ui.RemainingCapacityPercentEPC, ui.ChargeDischargePowerEPC,
 		ui.CumulativeChargingEnergyEPC, ui.CumulativeDischargingEnergyEPC, ui.VehicleConnectionStatusEPC)
 
@@ -495,7 +495,7 @@ type airconUIState struct {
 	AirFlowLevelCode  string `json:"air_flow_level_code,omitempty"` // raw EPC 0xA0 EDT, e.g. "41"
 }
 
-func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAirconUIParams) (*mcp.CallToolResult, any, error) {
+func renderAirconUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderAirconUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_aircon_ui", "家庭用エアコン(EOJ 0130xx)", 0x01, 0x30)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -503,7 +503,7 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 
 	const timeout = 5 * time.Second
 
-	props := getProperties(params.IP, eoj, timeout,
+	props := getProperties(ctx, params.IP, eoj, timeout,
 		ui.OperatingStatusEPC, ui.AirconOperationModeEPC, ui.TargetTemperatureEPC, ui.RoomTemperatureEPC, ui.AirFlowLevelEPC)
 
 	operatingStatus := getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus)
@@ -606,7 +606,7 @@ func parseHistoryDate(date string, now time.Time) (int, error) {
 	return daysAgo, nil
 }
 
-func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSmartmeterUIParams) (*mcp.CallToolResult, any, error) {
+func renderSmartmeterUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderSmartmeterUIParams) (*mcp.CallToolResult, any, error) {
 	eoj, errRes := parseAndGuardEOJ(params.EOJ, "render_smartmeter_ui", "低圧スマート電力量メータ(EOJ 0288xx)", 0x02, 0x88)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -638,7 +638,7 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 		epcs = append(epcs, ui.OperatingStatusEPC, ui.InstantaneousElectricPowerEPC,
 			ui.InstantaneousCurrentsEPC, ui.CumulativeElectricEnergyEPC)
 	}
-	props := getProperties(params.IP, eoj, timeout, epcs...)
+	props := getProperties(ctx, params.IP, eoj, timeout, epcs...)
 
 	if !params.HistoryOnly {
 		state.OperatingStatus = getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus)
@@ -658,7 +658,7 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 				state.CumulativeEnergyKWh = &kwh
 			}
 		}
-		if err := fetchSmartmeterHistory(params.IP, eoj, &state.History, coefficient, *unitFactor, timeout); err != nil {
+		if err := fetchSmartmeterHistory(ctx, params.IP, eoj, &state.History, coefficient, *unitFactor, timeout); err != nil {
 			state.HistoryError = err.Error()
 		}
 	} else {
@@ -711,17 +711,19 @@ func lockSmartmeterHistory(ip string, eoj uint32) func() {
 // The collection day is meter-wide state another controller (e.g. a HEMS) may
 // rely on, so the original value is written back when done. Calls for the
 // same meter are serialized (see smartmeterHistoryLocks).
-func fetchSmartmeterHistory(ip string, eoj uint32, day *smartmeterHistoryDay, coefficient *uint32, unitFactor float64, timeout time.Duration) error {
+func fetchSmartmeterHistory(ctx context.Context, ip string, eoj uint32, day *smartmeterHistoryDay, coefficient *uint32, unitFactor float64, timeout time.Duration) error {
 	unlock := lockSmartmeterHistory(ip, eoj)
 	defer unlock()
 
 	daysAgo := day.DaysAgo
-	originalDay, err := echonet.GetProperty(ip, eoj, ui.EnergyLogDayEPC, timeout)
+	originalDay, err := echonet.GetProperty(ctx, ip, eoj, ui.EnergyLogDayEPC, timeout)
 	if err != nil {
 		return fmt.Errorf("積算履歴収集日(EPC E5)を取得できませんでした: %w", err)
 	}
 	defer func() {
-		_ = echonet.SetProperty(ip, eoj, ui.EnergyLogDayEPC, originalDay, timeout)
+		// Restore even if the call was canceled midway, so the meter isn't
+		// left pointing at the day we selected.
+		_ = echonet.SetProperty(context.WithoutCancel(ctx), ip, eoj, ui.EnergyLogDayEPC, originalDay, timeout)
 	}()
 
 	// readLogs selects day d and reads its import and (if wantExport) export
@@ -730,11 +732,11 @@ func fetchSmartmeterHistory(ip string, eoj uint32, day *smartmeterHistoryDay, co
 	// ignores it), so it is reported as an error rather than shown under the
 	// wrong date.
 	readLogs := func(d int, wantExport bool) (imp, exp *ui.EnergyLog, err error) {
-		if err := echonet.SetProperty(ip, eoj, ui.EnergyLogDayEPC, ui.EncodeEnergyLogDay(d), timeout); err != nil {
+		if err := echonet.SetProperty(ctx, ip, eoj, ui.EnergyLogDayEPC, ui.EncodeEnergyLogDay(d), timeout); err != nil {
 			return nil, nil, fmt.Errorf("積算履歴収集日(EPC E5)を%d日前に設定できませんでした: %w", d, err)
 		}
 		read := func(epc byte) (*ui.EnergyLog, error) {
-			edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+			edt, err := echonet.GetProperty(ctx, ip, eoj, epc, timeout)
 			if err != nil {
 				return nil, nil // not supported (e.g. 0xE4 on an import-only meter)
 			}

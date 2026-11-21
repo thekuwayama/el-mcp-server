@@ -1,9 +1,27 @@
 package tools
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
+
+func TestFetchProductPageCanceledContext(t *testing.T) {
+	// A canceled ctx must abort the request before anything is sent.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := fetchProductPage(ctx, 1, "", "", ""); !errors.Is(err, context.Canceled) {
+		t.Errorf("fetchProductPage(canceled ctx) error = %v, want context.Canceled", err)
+	}
+	if _, err := collectProducts(ctx, "", "", "", 20); !errors.Is(err, context.Canceled) {
+		t.Errorf("collectProducts(canceled ctx) error = %v, want context.Canceled", err)
+	}
+	if _, err := resolveCategory(ctx, "家庭用エアコン"); !errors.Is(err, context.Canceled) {
+		t.Errorf("resolveCategory(canceled ctx) error = %v, want context.Canceled", err)
+	}
+}
 
 // categorySelectHTML mirrors the con_product_type <select> of echonet.jp's
 // product search form (excerpt).
