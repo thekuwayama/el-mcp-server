@@ -18,10 +18,13 @@ func TestRegister(t *testing.T) {
 // all tools and resources registered, as an MCP client would see them.
 func newRegisteredClientSession(t *testing.T) *mcp.ClientSession {
 	t.Helper()
-	ctx := context.Background()
+	return newClientSession(t, NewServer("0.0.0"))
+}
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.0"}, &mcp.ServerOptions{Capabilities: Capabilities()})
-	Register(server)
+// newClientSession connects an in-memory client to server.
+func newClientSession(t *testing.T, server *mcp.Server) *mcp.ClientSession {
+	t.Helper()
+	ctx := context.Background()
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, serverTransport, nil)
@@ -141,5 +144,34 @@ func TestUIToolResources(t *testing.T) {
 		if len(rr.Contents) != 1 || rr.Contents[0].Text == "" || rr.Contents[0].MIMEType != MCPAppsUIMimeType {
 			t.Errorf("ReadResource(%s) returned unexpected contents", uri)
 		}
+	}
+}
+
+// TestNewServer checks that NewServer reports the given version and the
+// MCP Apps capability, and registers the tools.
+func TestNewServer(t *testing.T) {
+	const version = "20260101"
+	cs := newClientSession(t, NewServer(version))
+
+	init := cs.InitializeResult()
+	if init == nil || init.ServerInfo == nil {
+		t.Fatal("InitializeResult has no ServerInfo")
+	}
+	if got := init.ServerInfo.Name; got != ServerName {
+		t.Errorf("ServerInfo.Name = %q, want %q", got, ServerName)
+	}
+	if got := init.ServerInfo.Version; got != version {
+		t.Errorf("ServerInfo.Version = %q, want %q", got, version)
+	}
+	if init.Capabilities == nil || init.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
+		t.Error("capabilities do not advertise the io.modelcontextprotocol/ui extension")
+	}
+
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	if len(res.Tools) == 0 {
+		t.Error("NewServer registered no tools")
 	}
 }

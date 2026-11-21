@@ -1,13 +1,13 @@
 // gen-mcpb-manifest generates a per-platform .mcpb manifest from
 // mcpb/manifest.template.json. The template holds only the platform-independent
-// metadata; compatibility, server and tools are filled in here, with tools taken
-// from what tools.Register actually registers so the bundle's advertised tool
-// list can't drift from the server implementation.
+// metadata; version, compatibility, server and tools are filled in here, with
+// tools taken from what tools.NewServer actually registers so the bundle's
+// advertised tool list can't drift from the server implementation.
 //
 // Run from the repository root:
 //
-//	go run ./cmd/gen-mcpb-manifest -platform darwin -o mcpb/build/darwin_arm64/manifest.json
-//	go run ./cmd/gen-mcpb-manifest -platform win32 -o mcpb/build/windows_amd64/manifest.json
+//	go run ./cmd/gen-mcpb-manifest -platform darwin -version 20260101 -o mcpb/build/darwin_arm64/manifest.json
+//	go run ./cmd/gen-mcpb-manifest -platform win32 -version 20260101 -o mcpb/build/windows_amd64/manifest.json
 package main
 
 import (
@@ -31,7 +31,8 @@ var binaryNames = map[string]string{
 }
 
 // manifest mirrors the field order of the .mcpb manifest. Fields up to Keywords
-// come from the template; Compatibility, Server and Tools are generated.
+// come from the template except Version, which is set from -version;
+// Compatibility, Server and Tools are generated.
 type manifest struct {
 	ManifestVersion string         `json:"manifest_version"`
 	Name            string         `json:"name"`
@@ -81,6 +82,7 @@ type manifestTool struct {
 func main() {
 	platform := flag.String("platform", "", ".mcpb platform to generate the manifest for (darwin or win32)")
 	outPath := flag.String("o", "", "output path for the generated manifest")
+	version := flag.String("version", "dev", "version written to the manifest and reported by the server (the release VERSION)")
 	flag.Parse()
 
 	binaryName, ok := binaryNames[*platform]
@@ -90,6 +92,10 @@ func main() {
 	}
 	if *outPath == "" {
 		fmt.Fprintln(os.Stderr, "error: -o is required")
+		os.Exit(1)
+	}
+	if *version == "" {
+		fmt.Fprintln(os.Stderr, "error: -version must not be empty")
 		os.Exit(1)
 	}
 
@@ -105,12 +111,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	registeredTools, err := listRegisteredTools(context.Background())
+	registeredTools, err := listRegisteredTools(context.Background(), *version)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
+	m.Version = *version
 	m.Compatibility = compatibility{Platforms: []string{*platform}}
 	m.Server = serverConfig{
 		Type:       "binary",
@@ -137,14 +144,8 @@ func main() {
 // listRegisteredTools spins up the real server and an in-memory client to
 // call the standard tools/list RPC, so the extracted tool set matches
 // exactly what an MCP client would see over the wire.
-func listRegisteredTools(ctx context.Context) ([]manifestTool, error) {
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "el-mcp-server",
-		Version: "0.1.0",
-	}, &mcp.ServerOptions{
-		Capabilities: tools.Capabilities(),
-	})
-	tools.Register(server)
+func listRegisteredTools(ctx context.Context, version string) ([]manifestTool, error) {
+	server := tools.NewServer(version)
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 
@@ -152,7 +153,7 @@ func listRegisteredTools(ctx context.Context) ([]manifestTool, error) {
 		return nil, fmt.Errorf("connecting server transport: %w", err)
 	}
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "gen-mcpb-manifest", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "gen-mcpb-manifest", Version: version}, nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connecting client: %w", err)

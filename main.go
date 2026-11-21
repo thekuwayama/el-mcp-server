@@ -18,19 +18,17 @@ import (
 // choice (e.g. -addr :8080).
 const defaultHTTPAddr = "127.0.0.1:8080"
 
+// version is the server version reported to MCP clients. Release builds set
+// it with -ldflags "-X main.version=<VERSION>" (see the Makefile); plain
+// go build / go install leave it as "dev".
+var version = "dev"
+
 func main() {
 	transport := flag.String("transport", "stdio", "Transport type: stdio or http")
 	addr := flag.String("addr", defaultHTTPAddr, "Listen address for HTTP transport (use :8080 to listen on all interfaces; there is no authentication)")
 	flag.Parse()
 
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "el-mcp-server",
-		Version: "0.1.0",
-	}, &mcp.ServerOptions{
-		Capabilities: tools.Capabilities(),
-	})
-
-	tools.Register(server)
+	server := tools.NewServer(version)
 
 	switch *transport {
 	case "stdio":

@@ -2,8 +2,12 @@
 
 .PHONY: help build test mcpb server-json clean
 
-# release version embedded in .mcpb file names (JST date, same as the release tag)
+# release version (JST date, same as the release tag). Embedded in the binary
+# (reported to MCP clients), the .mcpb manifest and the .mcpb file names
 VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
+
+# embed VERSION into main.version (plain go build leaves it as "dev")
+LDFLAGS := -X main.version=$(VERSION)
 
 # .mcpb targets as GOOS/GOARCH/mcpb-platform
 MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
@@ -17,7 +21,7 @@ help:
 
 ## build the el-mcp-server binary
 build:
-	go build -o el-mcp-server .
+	go build -ldflags "$(LDFLAGS)" -o el-mcp-server .
 
 ## run tests
 test:
@@ -32,8 +36,8 @@ mcpb:
 		out=mcpb/el-mcp-server_$(VERSION)_$${goos}_$${goarch}.mcpb; \
 		echo "==> $$out"; \
 		rm -rf $$dir; mkdir -p $$dir; \
-		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch go build -o $$dir/$$bin .; \
-		go run ./cmd/gen-mcpb-manifest -platform $$platform -o $$dir/manifest.json; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch go build -ldflags "$(LDFLAGS)" -o $$dir/$$bin .; \
+		go run ./cmd/gen-mcpb-manifest -platform $$platform -version $(VERSION) -o $$dir/manifest.json; \
 		npx --yes @anthropic-ai/mcpb pack $$dir $$out; \
 	done
 
