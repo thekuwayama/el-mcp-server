@@ -130,27 +130,37 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		if seen[ip] {
 			continue
 		}
+		// Only record the IP once a valid response to this request arrives, so
+		// that stray packets (e.g. a late response to an earlier get_property,
+		// a Get_SNA or an unsolicited INF) do not hide the real response.
+		eojs, ok := parseDiscoverResponse(buf[:n], tid)
+		if !ok {
+			continue
+		}
 		seen[ip] = true
-
-		resp, err := Decode(buf[:n])
-		if err != nil {
-			continue
-		}
-		if resp.ESV != ESVGetRes && resp.ESV != ESVInf {
-			continue
-		}
-
-		var eojs []uint32
-		for _, p := range resp.Props {
-			if p.EPC != 0xD5 && p.EPC != 0xD6 {
-				continue
-			}
-			eojList := parseInstanceList(p.EDT)
-			eojs = append(eojs, eojList...)
-		}
 		results = append(results, DiscoverResult{IP: ip, EOJs: eojs})
 	}
 	return results, nil
+}
+
+// parseDiscoverResponse checks whether data is a Get_Res to the discovery
+// request identified by tid and, if so, returns the EOJs listed in its
+// self-node instance list S (EPC 0xD6). It reports false for frames that fail
+// to decode, carry a different TID, are not Get_Res, or lack EPC 0xD6.
+func parseDiscoverResponse(data []byte, tid uint16) ([]uint32, bool) {
+	resp, err := Decode(data)
+	if err != nil {
+		return nil, false
+	}
+	if resp.TID != tid || resp.ESV != ESVGetRes {
+		return nil, false
+	}
+	for _, p := range resp.Props {
+		if p.EPC == 0xD6 {
+			return parseInstanceList(p.EDT), true
+		}
+	}
+	return nil, false
 }
 
 // defaultMulticastInterface returns the first up, non-loopback network
