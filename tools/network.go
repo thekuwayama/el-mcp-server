@@ -79,7 +79,7 @@ func discoverDevices(_ context.Context, _ *mcp.CallToolRequest, params *discover
 	for i, r := range results {
 		eojs := make([]string, len(r.EOJs))
 		for j, eoj := range r.EOJs {
-			eojs[j] = fmt.Sprintf("%06X", eoj)
+			eojs[j] = formatEOJ(eoj)
 		}
 		devices[i] = discoveredDevice{IP: r.IP, EOJs: eojs}
 	}
@@ -114,7 +114,7 @@ func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyP
 
 	result := propertyValue{
 		IP:       params.IP,
-		EOJ:      strings.ToUpper(params.EOJ),
+		EOJ:      formatEOJ(eoj),
 		EPC:      strings.ToUpper(params.EPC),
 		EDTHex:   hexJoin(edt),
 		EDTBytes: len(edt),
@@ -156,7 +156,7 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 		return errorResult(fmt.Sprintf("EDTの形式が正しくありません: %s", params.EDT)), nil, nil
 	}
 
-	confirmed, err := confirmPropertyWrite(ctx, req.Session, params.IP, params.EOJ, params.EPC, hexJoin(edt))
+	confirmed, err := confirmPropertyWrite(ctx, req.Session, params.IP, formatEOJ(eoj), params.EPC, hexJoin(edt))
 	if err != nil {
 		return errorResult(fmt.Sprintf("書き込み確認エラー: %v", err)), nil, nil
 	}
@@ -170,7 +170,7 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 
 	return jsonResult(setPropertyResult{
 		IP:     params.IP,
-		EOJ:    strings.ToUpper(params.EOJ),
+		EOJ:    formatEOJ(eoj),
 		EPC:    strings.ToUpper(params.EPC),
 		EDTHex: hexJoin(edt),
 		Status: "success",

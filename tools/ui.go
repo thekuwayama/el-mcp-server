@@ -235,7 +235,7 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 
 	state := batteryUIState{
 		IP:                       params.IP,
-		EOJ:                      fmt.Sprintf("%06X", eoj),
+		EOJ:                      formatEOJ(eoj),
 		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
 		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeOperationMode),
 		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
@@ -276,7 +276,7 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 
 	state := solarUIState{
 		IP:                          params.IP,
-		EOJ:                         fmt.Sprintf("%06X", eoj),
+		EOJ:                         formatEOJ(eoj),
 		OperatingStatus:             getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
 		InstantaneousPowerW:         getPtr(params.IP, eoj, ui.InstantaneousElectricPowerGenerationEPC, timeout, ui.DecodeUnsignedPowerW),
 		CumulativeGeneratedKWh:      getPtr(params.IP, eoj, ui.CumulativeElectricEnergyOfGenerationEPC, timeout, ui.DecodeCumulativeEnergyKWh),
@@ -325,7 +325,7 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 
 	state := v2hUIState{
 		IP:                       params.IP,
-		EOJ:                      fmt.Sprintf("%06X", eoj),
+		EOJ:                      formatEOJ(eoj),
 		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
 		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeV2HOperationMode),
 		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
@@ -369,7 +369,7 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 
 	state := airconUIState{
 		IP:                params.IP,
-		EOJ:               fmt.Sprintf("%06X", eoj),
+		EOJ:               formatEOJ(eoj),
 		OperatingStatus:   getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
 		OperationMode:     getString(params.IP, eoj, ui.AirconOperationModeEPC, timeout, ui.DecodeAirconOperationMode),
 		TargetTemperature: getPtr(params.IP, eoj, ui.TargetTemperatureEPC, timeout, ui.DecodeTargetTemperature),
@@ -476,7 +476,7 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 
 	state := smartmeterUIState{
 		IP:  params.IP,
-		EOJ: fmt.Sprintf("%06X", eoj),
+		EOJ: formatEOJ(eoj),
 		History: smartmeterHistoryDay{
 			Date:    now.AddDate(0, 0, -daysAgo).Format(smartmeterHistoryDateLayout),
 			DaysAgo: daysAgo,
