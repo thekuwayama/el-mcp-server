@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -27,18 +26,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// sort keys for deterministic output
-	keys := make([]string, 0, len(codes))
-	for k := range codes {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	ordered := make(map[string]string, len(codes))
-	for _, k := range keys {
-		ordered[k] = codes[k]
-	}
-
 	out, err := os.Create("echonet/spec/manufacturers/codes.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -46,15 +33,21 @@ func main() {
 	}
 	defer out.Close()
 
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(ordered); err != nil {
+	if err := writeCodes(out, codes); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("%d entries written to echonet/spec/manufacturers/codes.json\n", len(codes))
+}
+
+// writeCodes writes codes as indented JSON. encoding/json sorts map keys,
+// so the output is deterministic without sorting them here.
+func writeCodes(w io.Writer, codes map[string]string) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc.Encode(codes)
 }
 
 // --- XLSX parsing (archive/zip + encoding/xml, no external deps) ---
