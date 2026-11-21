@@ -683,44 +683,25 @@ func renderSmartmeterUI(ctx context.Context, _ *mcp.CallToolRequest, params *ren
 	return jsonResult(state)
 }
 
-// smartmeterHistoryLocks serializes fetchSmartmeterHistory per meter (IP +
-// EOJ). Its get-original/set/read/restore sequence on EPC 0xE5 must not
-// interleave with another call on the same meter: otherwise a second call may
-// take the first call's temporary value as the "original" and restore it last,
-// leaving 0xE5 changed. udpMu only serializes individual requests, so it does
-// not cover the whole sequence. Different meters keep separate 0xE5 state, so
-// they don't block each other. Entries are never removed; their number is
-// bounded by the meters queried.
-var smartmeterHistoryLocks = struct {
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
-}{locks: make(map[string]*sync.Mutex)}
-
-// lockSmartmeterHistory locks the history mutex for the meter at ip/eoj and
-// returns the function that unlocks it.
-func lockSmartmeterHistory(ip string, eoj uint32) func() {
-	key := fmt.Sprintf("%s/%06X", ip, eoj)
-	smartmeterHistoryLocks.mu.Lock()
-	m, ok := smartmeterHistoryLocks.locks[key]
-	if !ok {
-		m = &sync.Mutex{}
-		smartmeterHistoryLocks.locks[key] = m
-	}
-	smartmeterHistoryLocks.mu.Unlock()
-	m.Lock()
-	return m.Unlock
-}
+// smartmeterHistoryMu serializes fetchSmartmeterHistory. Its
+// get-original/set/read/restore sequence on EPC 0xE5 must not interleave with
+// another call: otherwise a second call may take the first call's temporary
+// value as the "original" and restore it last, leaving 0xE5 changed. udpMu only
+// serializes individual requests, so it does not cover the whole sequence. One
+// lock for all meters is enough: udpMu already lets only one request through
+// at a time, and there is normally a single meter.
+var smartmeterHistoryMu sync.Mutex
 
 // fetchSmartmeterHistory fills day's slots and totals from the half-hourly
 // energy log of the day day.DaysAgo days ago. For each log it selects the collection day with a SetC on EPC
 // 0xE5 and then reads EPC 0xE2 (import) and 0xE4 (export). The day after is
 // read too, only for its 00:00 reading, which closes the 23:30-24:00 slot.
 // The collection day is meter-wide state another controller (e.g. a HEMS) may
-// rely on, so the original value is written back when done. Calls for the
-// same meter are serialized (see smartmeterHistoryLocks).
+// rely on, so the original value is written back when done. Calls are
+// serialized (see smartmeterHistoryMu).
 func fetchSmartmeterHistory(ctx context.Context, ip string, eoj uint32, day *smartmeterHistoryDay, coefficient *uint32, unitFactor float64, timeout time.Duration) error {
-	unlock := lockSmartmeterHistory(ip, eoj)
-	defer unlock()
+	smartmeterHistoryMu.Lock()
+	defer smartmeterHistoryMu.Unlock()
 
 	daysAgo := day.DaysAgo
 	originalDay, err := echonet.GetProperty(ctx, ip, eoj, ui.EnergyLogDayEPC, timeout)
