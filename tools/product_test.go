@@ -60,6 +60,68 @@ func TestParseProductHTML(t *testing.T) {
 	}
 }
 
+func TestParseProductHTMLFullWidthColon(t *testing.T) {
+	const html = `
+<div class="col-sm-4">
+<h3 class="name">蓄電システム<small>ニチコン株式会社</small></h3>
+<p><small>ENL認証登録番号：GZ-001078</small></p>
+<p><small>Appendixバージョン ： Release Q.1</small></p>
+<p>ENL認証登録日・更新日：2026/08/18</p>
+</div>
+`
+	products, err := parseProductHTML(html, 100)
+	if err != nil {
+		t.Fatalf("parseProductHTML() error = %v", err)
+	}
+	if len(products) != 1 {
+		t.Fatalf("len(products) = %d, want 1", len(products))
+	}
+	got := products[0]
+	if got.CertNumber != "GZ-001078" || got.AppendixVer != "Release Q.1" || got.CertDate != "2026/08/18" {
+		t.Errorf("products[0] = %+v", got)
+	}
+}
+
+func TestParseProductHTMLLabelWithoutSeparator(t *testing.T) {
+	// Labels without any colon must not panic; the value is just left empty.
+	const html = `
+<div class="col-sm-4">
+<h3 class="name">蓄電システム<small>ニチコン株式会社</small></h3>
+<p><small>ENL認証登録番号 GZ-001078</small></p>
+<p><small>Appendixバージョン</small></p>
+<p>ENL認証登録日・更新日</p>
+</div>
+`
+	products, err := parseProductHTML(html, 100)
+	if err != nil {
+		t.Fatalf("parseProductHTML() error = %v", err)
+	}
+	if len(products) != 0 {
+		t.Errorf("products = %+v, want none (no cert number could be parsed)", products)
+	}
+}
+
+func TestLabelValue(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   string
+		wantOK bool
+	}{
+		{"ENL認証登録番号 : GZ-001078", "GZ-001078", true},
+		{"ENL認証登録番号：GZ-001078", "GZ-001078", true},
+		{"Appendixバージョン ： Release Q.1", "Release Q.1", true},
+		{"ENL認証登録番号 : a:b", "a:b", true},
+		{"ENL認証登録番号", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := labelValue(c.in)
+		if got != c.want || ok != c.wantOK {
+			t.Errorf("labelValue(%q) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.wantOK)
+		}
+	}
+}
+
 func TestFetchProductPageURL(t *testing.T) {
 	// fetchProductPage must issue GET requests using echonet.jp's actual
 	// search form field names (con_manufacturer / con_product_type / pro_num)

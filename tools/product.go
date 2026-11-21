@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/net/html"
@@ -216,12 +217,18 @@ func extractProduct(n *html.Node) certifiedProduct {
 			t := strings.TrimSpace(textContent(node))
 			switch {
 			case strings.Contains(t, "ENL認証登録番号"):
-				p.CertNumber = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
+				if v, ok := labelValue(t); ok {
+					p.CertNumber = v
+				}
 			case strings.Contains(t, "Appendixバージョン"):
-				p.AppendixVer = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
+				if v, ok := labelValue(t); ok {
+					p.AppendixVer = v
+				}
 			case strings.Contains(t, "ENL認証登録日") || strings.Contains(t, "認証登録日"):
-				p.CertDate = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
-			case p.Name == "" && !strings.Contains(t, ":") && len(t) > 3:
+				if v, ok := labelValue(t); ok {
+					p.CertDate = v
+				}
+			case p.Name == "" && !strings.ContainsAny(t, labelSeparators) && len(t) > 3:
 				p.Name = t
 			}
 		}
@@ -232,6 +239,22 @@ func extractProduct(n *html.Node) certifiedProduct {
 	walk(n)
 
 	return p
+}
+
+// labelSeparators are the characters accepted between a label and its value
+// (e.g. "ENL認証登録番号 : GZ-001078"). The full-width colon is accepted too so
+// that a small change in echonet.jp's HTML does not drop the value.
+const labelSeparators = ":："
+
+// labelValue returns the trimmed text after the first label separator in t.
+// ok is false when t contains no separator.
+func labelValue(t string) (value string, ok bool) {
+	i := strings.IndexAny(t, labelSeparators)
+	if i < 0 {
+		return "", false
+	}
+	_, size := utf8.DecodeRuneInString(t[i:])
+	return strings.TrimSpace(t[i+size:]), true
 }
 
 func textContent(n *html.Node) string {
