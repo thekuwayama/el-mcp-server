@@ -109,24 +109,42 @@ func DecodeInstantaneousPowerW(edt []byte) (int32, bool) {
 }
 
 // Currents holds the R-phase/T-phase instantaneous current measurements (A)
-// decoded from EPC 0xE8.
+// decoded from EPC 0xE8. A phase is nil when the meter reports no data for
+// it; a single-phase two-wire meter always reports no data for the T phase.
 type Currents struct {
-	RPhaseA float64 `json:"r_phase_a"`
-	TPhaseA float64 `json:"t_phase_a"`
+	RPhaseA *float64 `json:"r_phase_a,omitempty"`
+	TPhaseA *float64 `json:"t_phase_a,omitempty"`
 }
 
 // DecodeInstantaneousCurrents decodes EPC 0xE8 (2-byte signed x0.1A per
-// phase, R-phase then T-phase). 0x7FFE means "no data" for that phase.
+// phase, R-phase then T-phase). Each phase is decoded independently: 0x7FFE
+// means "no data" for that phase (single-phase two-wire meters set it for
+// the T phase), and any other value outside the valid range
+// (-3276.7A to 3276.5A, i.e. 0x7FFF and 0x8000) is also treated as no data.
+// Decoding fails only when the EDT is malformed or neither phase has data.
 func DecodeInstantaneousCurrents(edt []byte) (Currents, bool) {
 	if len(edt) != 4 {
 		return Currents{}, false
 	}
-	r := int16(edt[0])<<8 | int16(edt[1])
-	t := int16(edt[2])<<8 | int16(edt[3])
-	if r == 0x7FFE || t == 0x7FFE {
+	c := Currents{
+		RPhaseA: decodePhaseCurrentA(edt[0:2]),
+		TPhaseA: decodePhaseCurrentA(edt[2:4]),
+	}
+	if c.RPhaseA == nil && c.TPhaseA == nil {
 		return Currents{}, false
 	}
-	return Currents{RPhaseA: float64(r) / 10, TPhaseA: float64(t) / 10}, true
+	return c, true
+}
+
+// decodePhaseCurrentA decodes one phase of EPC 0xE8 (2-byte signed x0.1A),
+// returning nil for "no data" (0x7FFE) or a value outside -32767 to 32765.
+func decodePhaseCurrentA(b []byte) *float64 {
+	raw := int16(b[0])<<8 | int16(b[1])
+	if raw < -32767 || raw > 32765 {
+		return nil
+	}
+	a := float64(raw) / 10
+	return &a
 }
 
 // DecodeRawCumulativeEnergy decodes EPC 0xE0 (4-byte unsigned raw cumulative

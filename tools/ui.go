@@ -486,8 +486,8 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 		state.OperatingStatus = getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus)
 		state.InstantaneousPowerW = getPtr(params.IP, eoj, ui.InstantaneousElectricPowerEPC, timeout, ui.DecodeInstantaneousPowerW)
 		if currents := getPtr(params.IP, eoj, ui.InstantaneousCurrentsEPC, timeout, ui.DecodeInstantaneousCurrents); currents != nil {
-			state.InstantaneousRPhaseA = &currents.RPhaseA
-			state.InstantaneousTPhaseA = &currents.TPhaseA
+			state.InstantaneousRPhaseA = currents.RPhaseA
+			state.InstantaneousTPhaseA = currents.TPhaseA
 		}
 	}
 

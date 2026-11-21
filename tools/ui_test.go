@@ -1,8 +1,12 @@
 package tools
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/thekuwayama/el-mcp-server/tools/ui"
 )
 
 func TestParseHistoryDate(t *testing.T) {
@@ -36,5 +40,29 @@ func TestParseHistoryDate(t *testing.T) {
 		if err != nil || got != tt.wantDaysAgo {
 			t.Errorf("parseHistoryDate(%q) = (%d, %v), want (%d, nil)", tt.date, got, err, tt.wantDaysAgo)
 		}
+	}
+}
+
+// A single-phase two-wire meter reports no data for the T phase, so the state
+// must keep the R phase and omit the T phase instead of dropping both.
+func TestSmartmeterUIStateSinglePhaseCurrents(t *testing.T) {
+	currents, ok := ui.DecodeInstantaneousCurrents([]byte{0x00, 0x7B, 0x7F, 0xFE})
+	if !ok {
+		t.Fatal("DecodeInstantaneousCurrents failed for a single-phase two-wire reading")
+	}
+	state := smartmeterUIState{
+		InstantaneousRPhaseA: currents.RPhaseA,
+		InstantaneousTPhaseA: currents.TPhaseA,
+	}
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `"instantaneous_r_phase_a":12.3`) {
+		t.Errorf("state JSON %s lacks the R phase", got)
+	}
+	if strings.Contains(got, "instantaneous_t_phase_a") {
+		t.Errorf("state JSON %s should omit the T phase", got)
 	}
 }

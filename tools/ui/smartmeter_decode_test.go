@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestDecodeInstantaneousPowerW(t *testing.T) {
 	// -320 W as a 4-byte big-endian two's complement value.
@@ -16,17 +19,43 @@ func TestDecodeInstantaneousPowerW(t *testing.T) {
 }
 
 func TestDecodeInstantaneousCurrents(t *testing.T) {
-	// R相 12.3A, T相 -4.5A
-	edt := []byte{0x00, 0x7B, 0xFF, 0xD3}
-	got, ok := DecodeInstantaneousCurrents(edt)
-	if !ok || got.RPhaseA != 12.3 || got.TPhaseA != -4.5 {
-		t.Errorf("DecodeInstantaneousCurrents(%v) = (%+v, %v), want ({12.3 -4.5}, true)", edt, got, ok)
+	f := func(v float64) *float64 { return &v }
+	tests := []struct {
+		name   string
+		edt    []byte
+		wantR  *float64
+		wantT  *float64
+		wantOK bool
+	}{
+		{"both phases", []byte{0x00, 0x7B, 0xFF, 0xD3}, f(12.3), f(-4.5), true},
+		{"single-phase two-wire (T noData)", []byte{0x00, 0x7B, 0x7F, 0xFE}, f(12.3), nil, true},
+		{"R noData", []byte{0x7F, 0xFE, 0x00, 0x2D}, nil, f(4.5), true},
+		{"R overflow 0x7FFF", []byte{0x7F, 0xFF, 0x00, 0x2D}, nil, f(4.5), true},
+		{"T underflow 0x8000", []byte{0x00, 0x7B, 0x80, 0x00}, f(12.3), nil, true},
+		{"range limits", []byte{0x7F, 0xFD, 0x80, 0x01}, f(3276.5), f(-3276.7), true},
+		{"both noData", []byte{0x7F, 0xFE, 0x7F, 0xFE}, nil, nil, false},
+		{"2 bytes", []byte{0x00, 0x00}, nil, nil, false},
 	}
-	if _, ok := DecodeInstantaneousCurrents([]byte{0x7F, 0xFE, 0x00, 0x00}); ok {
-		t.Error("DecodeInstantaneousCurrents with noData R-phase should fail")
+	eq := func(a, b *float64) bool {
+		if a == nil || b == nil {
+			return a == b
+		}
+		return *a == *b
 	}
-	if _, ok := DecodeInstantaneousCurrents([]byte{0x00, 0x00}); ok {
-		t.Error("DecodeInstantaneousCurrents with 2 bytes should fail")
+	str := func(p *float64) string {
+		if p == nil {
+			return "nil"
+		}
+		return fmt.Sprint(*p)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := DecodeInstantaneousCurrents(tt.edt)
+			if ok != tt.wantOK || !eq(got.RPhaseA, tt.wantR) || !eq(got.TPhaseA, tt.wantT) {
+				t.Errorf("DecodeInstantaneousCurrents(% X) = (R=%s T=%s, %v), want (R=%s T=%s, %v)",
+					tt.edt, str(got.RPhaseA), str(got.TPhaseA), ok, str(tt.wantR), str(tt.wantT), tt.wantOK)
+			}
+		})
 	}
 }
 
