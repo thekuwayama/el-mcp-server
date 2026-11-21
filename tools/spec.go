@@ -52,9 +52,9 @@ func searchDeviceClass(_ context.Context, _ *mcp.CallToolRequest, params *search
 
 	for _, cls := range spec.Classes {
 		eojHex := cls.EOJHex()
-		if strings.Contains(strings.ToUpper(cls.NameJP), strings.ToUpper(params.Query)) ||
+		if strings.Contains(strings.ToUpper(cls.NameJP), q) ||
 			strings.Contains(strings.ToUpper(cls.NameEN), q) ||
-			strings.Contains(strings.ToUpper(cls.Description), strings.ToUpper(params.Query)) ||
+			strings.Contains(strings.ToUpper(cls.Description), q) ||
 			strings.Contains(eojHex, q) {
 			results = append(results, deviceClassResult{
 				EOJ:         eojHex,
