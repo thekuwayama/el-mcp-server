@@ -146,11 +146,23 @@ func parseAndGuardEOJ(eojHex, toolName, deviceDesc string, groupCode, classCode 
 	return eoj, nil
 }
 
-// getString fetches epc and decodes it with decode, returning "" if the
-// property could not be fetched or decoded.
-func getString(ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (string, bool)) string {
-	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+// getProperties reads all of epcs from the device with a single Get, so an
+// offline device costs one timeout rather than one per EPC. It returns nil
+// (an empty lookup) when the request fails as a whole; EPCs the device
+// couldn't read (Get_SNA with PDC = 0) are simply absent from the map.
+func getProperties(ip string, eoj uint32, timeout time.Duration, epcs ...byte) map[byte][]byte {
+	props, err := echonet.GetProperties(ip, eoj, timeout, epcs...)
 	if err != nil {
+		return nil
+	}
+	return props
+}
+
+// getString decodes epc from props with decode, returning "" if the property
+// was not returned by the device or could not be decoded.
+func getString(props map[byte][]byte, epc byte, decode func([]byte) (string, bool)) string {
+	edt, ok := props[epc]
+	if !ok {
 		return ""
 	}
 	v, ok := decode(edt)
@@ -160,14 +172,14 @@ func getString(ip string, eoj uint32, epc byte, timeout time.Duration, decode fu
 	return v
 }
 
-// getEnum fetches a 1-byte state-enum epc and returns its decoded label
+// getEnum decodes a 1-byte state-enum epc from props and returns its label
 // along with its raw EDT as a two-digit hex code, or two empty strings if
-// the property could not be fetched or decoded. The code lets the
-// dashboards select the matching option without reverse-looking-up the
-// label.
-func getEnum(ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (string, bool)) (label, code string) {
-	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
-	if err != nil {
+// the property was not returned by the device or could not be decoded. The
+// code lets the dashboards select the matching option without
+// reverse-looking-up the label.
+func getEnum(props map[byte][]byte, epc byte, decode func([]byte) (string, bool)) (label, code string) {
+	edt, ok := props[epc]
+	if !ok {
 		return "", ""
 	}
 	return decodeEnum(edt, decode)
@@ -187,12 +199,13 @@ func decodeEnum(edt []byte, decode func([]byte) (string, bool)) (label, code str
 	return label, code
 }
 
-// getPtr fetches epc and decodes it with decode, returning nil if the
-// property could not be fetched or decoded. Used for numeric fields, where a
-// zero value would be indistinguishable from "not reported by the device".
-func getPtr[T any](ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (T, bool)) *T {
-	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
-	if err != nil {
+// getPtr decodes epc from props with decode, returning nil if the property
+// was not returned by the device or could not be decoded. Used for numeric
+// fields, where a zero value would be indistinguishable from "not reported
+// by the device".
+func getPtr[T any](props map[byte][]byte, epc byte, decode func([]byte) (T, bool)) *T {
+	edt, ok := props[epc]
+	if !ok {
 		return nil
 	}
 	v, ok := decode(edt)
@@ -338,15 +351,18 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 
 	const timeout = 5 * time.Second
 
-	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeOperationMode)
+	props := getProperties(params.IP, eoj, timeout,
+		ui.OperatingStatusEPC, ui.OperationModeEPC, ui.RemainingCapacityPercentEPC, ui.ChargeDischargePowerEPC)
+
+	operationMode, operationModeCode := getEnum(props, ui.OperationModeEPC, ui.DecodeOperationMode)
 	state := batteryUIState{
 		IP:                       params.IP,
 		EOJ:                      formatEOJ(eoj),
-		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		OperatingStatus:          getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus),
 		OperationMode:            operationMode,
 		OperationModeCode:        operationModeCode,
-		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
-		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
+		RemainingCapacityPercent: getPtr(props, ui.RemainingCapacityPercentEPC, ui.DecodePercent),
+		ChargeDischargePowerW:    getPtr(props, ui.ChargeDischargePowerEPC, ui.DecodeSignedPowerW),
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil && state.ChargeDischargePowerW == nil {
@@ -381,15 +397,19 @@ func renderSolarUI(_ context.Context, _ *mcp.CallToolRequest, params *renderSola
 
 	const timeout = 5 * time.Second
 
+	props := getProperties(params.IP, eoj, timeout,
+		ui.OperatingStatusEPC, ui.InstantaneousElectricPowerGenerationEPC, ui.CumulativeElectricEnergyOfGenerationEPC,
+		ui.CumulativeElectricEnergySoldEPC, ui.SystemInterconnectionStatusEPC, ui.OutputPowerRestraintStatusEPC)
+
 	state := solarUIState{
 		IP:                          params.IP,
 		EOJ:                         formatEOJ(eoj),
-		OperatingStatus:             getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
-		InstantaneousPowerW:         getPtr(params.IP, eoj, ui.InstantaneousElectricPowerGenerationEPC, timeout, ui.DecodeUnsignedPowerW),
-		CumulativeGeneratedKWh:      getPtr(params.IP, eoj, ui.CumulativeElectricEnergyOfGenerationEPC, timeout, ui.DecodeCumulativeEnergyKWh),
-		CumulativeSoldKWh:           getPtr(params.IP, eoj, ui.CumulativeElectricEnergySoldEPC, timeout, ui.DecodeCumulativeEnergyKWh),
-		SystemInterconnectionStatus: getString(params.IP, eoj, ui.SystemInterconnectionStatusEPC, timeout, ui.DecodeSystemInterconnectionStatus),
-		OutputPowerRestraintStatus:  getString(params.IP, eoj, ui.OutputPowerRestraintStatusEPC, timeout, ui.DecodeOutputPowerRestraintStatus),
+		OperatingStatus:             getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus),
+		InstantaneousPowerW:         getPtr(props, ui.InstantaneousElectricPowerGenerationEPC, ui.DecodeUnsignedPowerW),
+		CumulativeGeneratedKWh:      getPtr(props, ui.CumulativeElectricEnergyOfGenerationEPC, ui.DecodeCumulativeEnergyKWh),
+		CumulativeSoldKWh:           getPtr(props, ui.CumulativeElectricEnergySoldEPC, ui.DecodeCumulativeEnergyKWh),
+		SystemInterconnectionStatus: getString(props, ui.SystemInterconnectionStatusEPC, ui.DecodeSystemInterconnectionStatus),
+		OutputPowerRestraintStatus:  getString(props, ui.OutputPowerRestraintStatusEPC, ui.DecodeOutputPowerRestraintStatus),
 	}
 	if state.CumulativeGeneratedKWh != nil && state.CumulativeSoldKWh != nil {
 		if v, ok := ui.SelfConsumptionPercent(*state.CumulativeGeneratedKWh, *state.CumulativeSoldKWh); ok {
@@ -431,18 +451,22 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 
 	const timeout = 5 * time.Second
 
-	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeV2HOperationMode)
+	props := getProperties(params.IP, eoj, timeout,
+		ui.OperatingStatusEPC, ui.OperationModeEPC, ui.RemainingCapacityPercentEPC, ui.ChargeDischargePowerEPC,
+		ui.CumulativeChargingEnergyEPC, ui.CumulativeDischargingEnergyEPC, ui.VehicleConnectionStatusEPC)
+
+	operationMode, operationModeCode := getEnum(props, ui.OperationModeEPC, ui.DecodeV2HOperationMode)
 	state := v2hUIState{
 		IP:                       params.IP,
 		EOJ:                      formatEOJ(eoj),
-		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
+		OperatingStatus:          getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus),
 		OperationMode:            operationMode,
 		OperationModeCode:        operationModeCode,
-		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
-		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
-		CumulativeChargingKWh:    getPtr(params.IP, eoj, ui.CumulativeChargingEnergyEPC, timeout, ui.DecodeCumulativeEnergyKWh),
-		CumulativeDischargingKWh: getPtr(params.IP, eoj, ui.CumulativeDischargingEnergyEPC, timeout, ui.DecodeCumulativeEnergyKWh),
-		VehicleConnectionStatus:  getString(params.IP, eoj, ui.VehicleConnectionStatusEPC, timeout, ui.DecodeVehicleConnectionStatus),
+		RemainingCapacityPercent: getPtr(props, ui.RemainingCapacityPercentEPC, ui.DecodePercent),
+		ChargeDischargePowerW:    getPtr(props, ui.ChargeDischargePowerEPC, ui.DecodeSignedPowerW),
+		CumulativeChargingKWh:    getPtr(props, ui.CumulativeChargingEnergyEPC, ui.DecodeCumulativeEnergyKWh),
+		CumulativeDischargingKWh: getPtr(props, ui.CumulativeDischargingEnergyEPC, ui.DecodeCumulativeEnergyKWh),
+		VehicleConnectionStatus:  getString(props, ui.VehicleConnectionStatusEPC, ui.DecodeVehicleConnectionStatus),
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.RemainingCapacityPercent == nil &&
@@ -479,11 +503,14 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 
 	const timeout = 5 * time.Second
 
-	operatingStatus := getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus)
-	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.AirconOperationModeEPC, timeout, ui.DecodeAirconOperationMode)
-	targetTemperature := getPtr(params.IP, eoj, ui.TargetTemperatureEPC, timeout, ui.DecodeTargetTemperature)
-	roomTemperature := getPtr(params.IP, eoj, ui.RoomTemperatureEPC, timeout, ui.DecodeRoomTemperature)
-	airFlowLevel, airFlowLevelCode := getEnum(params.IP, eoj, ui.AirFlowLevelEPC, timeout, ui.DecodeAirFlowLevel)
+	props := getProperties(params.IP, eoj, timeout,
+		ui.OperatingStatusEPC, ui.AirconOperationModeEPC, ui.TargetTemperatureEPC, ui.RoomTemperatureEPC, ui.AirFlowLevelEPC)
+
+	operatingStatus := getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus)
+	operationMode, operationModeCode := getEnum(props, ui.AirconOperationModeEPC, ui.DecodeAirconOperationMode)
+	targetTemperature := getPtr(props, ui.TargetTemperatureEPC, ui.DecodeTargetTemperature)
+	roomTemperature := getPtr(props, ui.RoomTemperatureEPC, ui.DecodeRoomTemperature)
+	airFlowLevel, airFlowLevelCode := getEnum(props, ui.AirFlowLevelEPC, ui.DecodeAirFlowLevel)
 	state := airconUIState{
 		IP:                params.IP,
 		EOJ:               formatEOJ(eoj),
@@ -513,8 +540,8 @@ type renderSmartmeterUIParams struct {
 	EOJ  string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
 	Date string `json:"date,omitempty" jsonschema:"30分毎の電力量履歴を表示する日付(YYYY-MM-DD)。省略時は今日。今日から99日前まで指定可能。例: 2026-11-14"`
 	// HistoryOnly is set by the dashboard's previous/next-day buttons, which
-	// only need the history; skipping the current-state properties saves four
-	// Get round trips per day change.
+	// only need the history; skipping the current-state properties keeps
+	// four EPCs out of the Get on every day change.
 	HistoryOnly bool `json:"history_only,omitempty" jsonschema:"trueの場合は履歴(EPC E2/E4)とその換算に必要なEPC D3/E1のみ取得し、稼働状態・瞬時電力・瞬時電流・積算電力量は取得しない。ダッシュボードの前日/翌日ボタンが使用する。省略時はfalse"`
 }
 
@@ -602,22 +629,31 @@ func renderSmartmeterUI(_ context.Context, _ *mcp.CallToolRequest, params *rende
 		},
 	}
 
+	// The coefficient (0xD3) and unit (0xE1) scale both the current cumulative
+	// reading and the history, so they are always read; the current-state
+	// properties are added unless only the history is wanted. All of them go
+	// in a single Get.
+	epcs := []byte{ui.CumulativeElectricEnergyUnitEPC, ui.CoefficientEPC}
 	if !params.HistoryOnly {
-		state.OperatingStatus = getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus)
-		state.InstantaneousPowerW = getPtr(params.IP, eoj, ui.InstantaneousElectricPowerEPC, timeout, ui.DecodeInstantaneousPowerW)
-		if currents := getPtr(params.IP, eoj, ui.InstantaneousCurrentsEPC, timeout, ui.DecodeInstantaneousCurrents); currents != nil {
+		epcs = append(epcs, ui.OperatingStatusEPC, ui.InstantaneousElectricPowerEPC,
+			ui.InstantaneousCurrentsEPC, ui.CumulativeElectricEnergyEPC)
+	}
+	props := getProperties(params.IP, eoj, timeout, epcs...)
+
+	if !params.HistoryOnly {
+		state.OperatingStatus = getString(props, ui.OperatingStatusEPC, ui.DecodeOperatingStatus)
+		state.InstantaneousPowerW = getPtr(props, ui.InstantaneousElectricPowerEPC, ui.DecodeInstantaneousPowerW)
+		if currents := getPtr(props, ui.InstantaneousCurrentsEPC, ui.DecodeInstantaneousCurrents); currents != nil {
 			state.InstantaneousRPhaseA = currents.RPhaseA
 			state.InstantaneousTPhaseA = currents.TPhaseA
 		}
 	}
 
-	// The coefficient (0xD3) and unit (0xE1) scale both the current cumulative
-	// reading and the history, so they are fetched once up front.
-	unitFactor := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyUnitEPC, timeout, ui.DecodeEnergyUnit)
+	unitFactor := getPtr(props, ui.CumulativeElectricEnergyUnitEPC, ui.DecodeEnergyUnit)
 	if unitFactor != nil {
-		coefficient := getPtr(params.IP, eoj, ui.CoefficientEPC, timeout, ui.DecodeCoefficient)
+		coefficient := getPtr(props, ui.CoefficientEPC, ui.DecodeCoefficient)
 		if !params.HistoryOnly {
-			if rawEnergy := getPtr(params.IP, eoj, ui.CumulativeElectricEnergyEPC, timeout, ui.DecodeRawCumulativeEnergy); rawEnergy != nil {
+			if rawEnergy := getPtr(props, ui.CumulativeElectricEnergyEPC, ui.DecodeRawCumulativeEnergy); rawEnergy != nil {
 				kwh := ui.CumulativeEnergyKWh(*rawEnergy, coefficient, *unitFactor)
 				state.CumulativeEnergyKWh = &kwh
 			}
