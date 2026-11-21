@@ -2,9 +2,15 @@ package tools
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/thekuwayama/el-mcp-server/echonet/spec"
 )
 
 func TestParseHexByte(t *testing.T) {
@@ -75,5 +81,184 @@ func TestParseHexBytesLengthLimit(t *testing.T) {
 		if _, err := parseHexBytes(in); !errors.Is(err, errHexTooLong) {
 			t.Errorf("parseHexBytes(%d chars) error = %v, want errHexTooLong", len(in), err)
 		}
+	}
+}
+
+func resultText(t *testing.T, res *mcp.CallToolResult) string {
+	t.Helper()
+	if len(res.Content) != 1 {
+		t.Fatalf("len(Content) = %d, want 1", len(res.Content))
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("Content[0] is %T, want *mcp.TextContent", res.Content[0])
+	}
+	return tc.Text
+}
+
+func mustFindClass(t *testing.T, eoj string) spec.DeviceClass {
+	t.Helper()
+	cls, ok := findClass(eoj)
+	if !ok {
+		t.Fatalf("findClass(%q) not found", eoj)
+	}
+	return cls
+}
+
+func classEPC(t *testing.T, cls spec.DeviceClass, code byte) spec.EPCDef {
+	t.Helper()
+	for _, e := range cls.EPCs {
+		if e.Code == code {
+			return e
+		}
+	}
+	t.Fatalf("EOJ %s does not define EPC %02X", cls.EOJHex(), code)
+	return spec.EPCDef{}
+}
+
+// redefinedEPCs are super class EPCs that the MRA redefines per device class.
+var redefinedEPCs = []struct {
+	eoj  string
+	epcs []byte
+}{
+	{"0130", []byte{0x80, 0x8F}},
+	{"027D", []byte{0x83, 0x89, 0x8C}},
+	{"0279", []byte{0x83, 0x89, 0x8C}},
+}
+
+func TestGetEPCDetailPrefersClassDefinition(t *testing.T) {
+	for _, rc := range redefinedEPCs {
+		cls := mustFindClass(t, rc.eoj)
+		for _, code := range rc.epcs {
+			t.Run(fmt.Sprintf("%s/%02X", rc.eoj, code), func(t *testing.T) {
+				res, _, err := getEPCDetail(context.Background(), nil, &getEPCDetailParams{EOJ: rc.eoj, EPC: fmt.Sprintf("%02X", code)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if res.IsError {
+					t.Fatalf("IsError: %s", resultText(t, res))
+				}
+				var got epcDetail
+				if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+					t.Fatal(err)
+				}
+				if want := toEPCDetail(classEPC(t, cls, code)); got != want {
+					t.Errorf("got %+v, want %+v", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestGetEPCDetailAirconPowerSaving(t *testing.T) {
+	// 0x8F of 0x0130 is announced on change, unlike the super class one.
+	res, _, err := getEPCDetail(context.Background(), nil, &getEPCDetailParams{EOJ: "0130", EPC: "8F"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got epcDetail
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessRules != "Anno/Set/Get" {
+		t.Errorf("AccessRules = %q, want %q", got.AccessRules, "Anno/Set/Get")
+	}
+}
+
+func TestGetEPCDetailFallsBackToSuperClass(t *testing.T) {
+	// 0x8A (maker code) is defined only in the super class for 0x0130.
+	res, _, err := getEPCDetail(context.Background(), nil, &getEPCDetailParams{EOJ: "0130", EPC: "8A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError: %s", resultText(t, res))
+	}
+	var got epcDetail
+	if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.EPC != "8A" {
+		t.Errorf("EPC = %q, want %q", got.EPC, "8A")
+	}
+}
+
+func TestGetEPCDetailUnknownEOJ(t *testing.T) {
+	// A super class EPC must not succeed for an EOJ that does not exist.
+	res, _, err := getEPCDetail(context.Background(), nil, &getEPCDetailParams{EOJ: "FFFF", EPC: "80"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("IsError = false, want true: %s", resultText(t, res))
+	}
+}
+
+func TestListEPCExcludesRedefinedSuperClassEPCs(t *testing.T) {
+	for _, rc := range redefinedEPCs {
+		t.Run(rc.eoj, func(t *testing.T) {
+			res, _, err := listEPC(context.Background(), nil, &listEPCParams{EOJ: rc.eoj})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got struct {
+				SuperClass []epcSummary `json:"super_class_epcs"`
+				ClassEPCs  []epcSummary `json:"class_epcs"`
+			}
+			if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]bool{}
+			for _, e := range got.ClassEPCs {
+				seen[e.EPC] = true
+			}
+			for _, e := range got.SuperClass {
+				if seen[e.EPC] {
+					t.Errorf("EPC %s is listed in both super_class_epcs and class_epcs", e.EPC)
+				}
+				seen[e.EPC] = true
+			}
+			for _, code := range rc.epcs {
+				if !seen[fmt.Sprintf("%02X", code)] {
+					t.Errorf("EPC %02X is missing", code)
+				}
+			}
+			if want := len(got.ClassEPCs) + len(got.SuperClass); want != len(seen) {
+				t.Errorf("listed %d EPCs, want %d unique", want, len(seen))
+			}
+		})
+	}
+}
+
+func TestSearchDeviceClassEPCCountHasNoDuplicates(t *testing.T) {
+	for _, rc := range redefinedEPCs {
+		t.Run(rc.eoj, func(t *testing.T) {
+			cls := mustFindClass(t, rc.eoj)
+			res, _, err := searchDeviceClass(context.Background(), nil, &searchDeviceClassParams{Query: rc.eoj})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []deviceClassResult
+			if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+				t.Fatal(err)
+			}
+			codes := map[byte]bool{}
+			for _, e := range spec.SuperClassEPCs {
+				codes[e.Code] = true
+			}
+			for _, e := range cls.EPCs {
+				codes[e.Code] = true
+			}
+			for _, r := range got {
+				if r.EOJ != rc.eoj {
+					continue
+				}
+				if r.EPCCount != len(codes) {
+					t.Errorf("EPCCount = %d, want %d", r.EPCCount, len(codes))
+				}
+				return
+			}
+			t.Fatalf("EOJ %s not found in results", rc.eoj)
+		})
 	}
 }
