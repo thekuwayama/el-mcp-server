@@ -114,28 +114,11 @@
 (function () {
   var current = null; // last rendered airconUIState (ip/eoj carried for control actions)
 
-  // Mirrors tools/ui/aircon_decode.go airconOperationModeNames — keep in sync.
-  var OPERATION_MODES = [
-    ["40", "その他"],
-    ["41", "自動"],
-    ["42", "冷房"],
-    ["43", "暖房"],
-    ["44", "除湿"],
-    ["45", "送風"]
-  ];
+  // [code, label] pairs injected from tools/ui/aircon_decode.go (AirconOperationModeOptions).
+  var OPERATION_MODES = /*@enum:OPERATION_MODES*/[];
 
-  // Mirrors tools/ui/aircon_decode.go DecodeAirFlowLevel (0x31-0x38 = levels 1-8, 0x41 = auto).
-  var FAN_LEVELS = [
-    ["41", "自動"],
-    ["31", "風量1"],
-    ["32", "風量2"],
-    ["33", "風量3"],
-    ["34", "風量4"],
-    ["35", "風量5"],
-    ["36", "風量6"],
-    ["37", "風量7"],
-    ["38", "風量8"]
-  ];
+  // [code, label] pairs injected from tools/ui/aircon_decode.go (AirFlowLevelOptions).
+  var FAN_LEVELS = /*@enum:FAN_LEVELS*/[];
 
   var MIN_TEMP = 0;
   var MAX_TEMP = 50;
@@ -224,6 +207,13 @@
   btnTempDown.addEventListener("click", function () { stepTemperature(-1); });
   btnTempUp.addEventListener("click", function () { stepTemperature(1); });
 
+  // Selects the option whose value is code (a raw EDT such as "42"), falling
+  // back to the "-" placeholder when code is missing or not in the table.
+  function selectCode(sel, code) {
+    sel.value = code || "";
+    if (sel.selectedIndex < 0) sel.value = "";
+  }
+
   function render(state) {
     if (!state) return;
     current = state;
@@ -240,12 +230,10 @@
     btnStatus.dataset.on = String(isOn);
     btnStatus.disabled = !hasDevice;
 
-    var modeEntry = OPERATION_MODES.filter(function (e) { return state.operation_mode === e[1]; })[0];
-    selMode.value = modeEntry ? modeEntry[0] : "";
+    selectCode(selMode, state.operation_mode_code);
     selMode.disabled = !hasDevice;
 
-    var fanEntry = FAN_LEVELS.filter(function (e) { return state.air_flow_level === e[1]; })[0];
-    selFan.value = fanEntry ? fanEntry[0] : "";
+    selectCode(selFan, state.air_flow_level_code);
     selFan.disabled = !hasDevice;
 
     if (typeof state.target_temperature === "number") {

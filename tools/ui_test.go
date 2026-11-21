@@ -82,6 +82,75 @@ func TestLockSmartmeterHistoryIndependentMeters(t *testing.T) {
 	}
 }
 
+func TestDashboardEnumTablesInjected(t *testing.T) {
+	cases := []struct {
+		name   string
+		html   string
+		tables map[string][]ui.EnumOption
+	}{
+		{"battery", batteryDashboardHTML, map[string][]ui.EnumOption{"OPERATION_MODES": ui.OperationModeOptions()}},
+		{"v2h", v2hDashboardHTML, map[string][]ui.EnumOption{"OPERATION_MODES": ui.V2HOperationModeOptions()}},
+		{"aircon", airconDashboardHTML, map[string][]ui.EnumOption{
+			"OPERATION_MODES": ui.AirconOperationModeOptions(),
+			"FAN_LEVELS":      ui.AirFlowLevelOptions(),
+		}},
+	}
+	for _, c := range cases {
+		if strings.Contains(c.html, "/*@enum:") {
+			t.Errorf("%s dashboard still has an enum placeholder", c.name)
+		}
+		for name, opts := range c.tables {
+			b, err := json.Marshal(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "var " + name + " = " + string(b) + ";"
+			if !strings.Contains(c.html, want) {
+				t.Errorf("%s dashboard does not contain %s", c.name, want)
+			}
+		}
+	}
+
+	for name, html := range map[string]string{"solar": solarDashboardHTML, "smartmeter": smartmeterDashboardHTML} {
+		if strings.Contains(html, "/*@enum:") {
+			t.Errorf("%s dashboard has an enum placeholder but no table is injected", name)
+		}
+	}
+}
+
+func TestInjectEnumTables(t *testing.T) {
+	got := injectEnumTables("var A = /*@enum:A*/[];", map[string][]ui.EnumOption{"A": {{"42", "充電"}}})
+	if want := `var A = [["42","充電"]];`; got != want {
+		t.Errorf("injectEnumTables = %q, want %q", got, want)
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("injectEnumTables with a missing placeholder should panic")
+		}
+	}()
+	injectEnumTables("var A = [];", map[string][]ui.EnumOption{"A": nil})
+}
+
+func TestDecodeEnum(t *testing.T) {
+	cases := []struct {
+		edt       []byte
+		wantLabel string
+		wantCode  string
+	}{
+		{[]byte{0x42}, "充電", "42"},
+		{[]byte{0x99}, "不明(0x99)", "99"},
+		{[]byte{0x42, 0x00}, "", ""},
+		{nil, "", ""},
+	}
+	for _, c := range cases {
+		label, code := decodeEnum(c.edt, ui.DecodeOperationMode)
+		if label != c.wantLabel || code != c.wantCode {
+			t.Errorf("decodeEnum(%v) = (%q, %q), want (%q, %q)", c.edt, label, code, c.wantLabel, c.wantCode)
+		}
+	}
+}
+
 func TestParseHistoryDate(t *testing.T) {
 	jst := time.FixedZone("JST", 9*60*60)
 	// Just after midnight, so a naive "now minus 24h" calculation would be off by one.

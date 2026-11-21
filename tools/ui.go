@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -32,11 +33,21 @@ var airconDashboardTemplate string
 //go:embed ui/templates/smartmeter.html
 var smartmeterDashboardTemplate string
 
+// Each dashboard gets the shared script inlined and, where it has <select>
+// controls, the option tables the decoders use, so the templates don't carry
+// their own copies.
 var (
-	batteryDashboardHTML    = mustInjectCommonJS("battery.html", batteryDashboardTemplate)
-	solarDashboardHTML      = mustInjectCommonJS("solar.html", solarDashboardTemplate)
-	v2hDashboardHTML        = mustInjectCommonJS("v2h.html", v2hDashboardTemplate)
-	airconDashboardHTML     = mustInjectCommonJS("aircon.html", airconDashboardTemplate)
+	batteryDashboardHTML = injectEnumTables(mustInjectCommonJS("battery.html", batteryDashboardTemplate), map[string][]ui.EnumOption{
+		"OPERATION_MODES": ui.OperationModeOptions(),
+	})
+	solarDashboardHTML = mustInjectCommonJS("solar.html", solarDashboardTemplate)
+	v2hDashboardHTML   = injectEnumTables(mustInjectCommonJS("v2h.html", v2hDashboardTemplate), map[string][]ui.EnumOption{
+		"OPERATION_MODES": ui.V2HOperationModeOptions(),
+	})
+	airconDashboardHTML = injectEnumTables(mustInjectCommonJS("aircon.html", airconDashboardTemplate), map[string][]ui.EnumOption{
+		"OPERATION_MODES": ui.AirconOperationModeOptions(),
+		"FAN_LEVELS":      ui.AirFlowLevelOptions(),
+	})
 	smartmeterDashboardHTML = mustInjectCommonJS("smartmeter.html", smartmeterDashboardTemplate)
 )
 
@@ -64,6 +75,32 @@ func mustInjectCommonJS(name, tmpl string) string {
 	html, err := injectCommonJS(tmpl, dashboardCommonJS)
 	if err != nil {
 		panic(fmt.Sprintf("dashboard template %s: %v", name, err))
+	}
+	return html
+}
+
+// enumPlaceholder is the JS expression a template writes where a table is
+// injected. It is a valid (empty) array literal so the raw template still
+// parses.
+func enumPlaceholder(name string) string {
+	return "/*@enum:" + name + "*/[]"
+}
+
+// injectEnumTables replaces each enumPlaceholder(name) in html with the JSON
+// encoding of tables[name]. It panics when a placeholder is missing: the
+// templates are embedded at build time, so that is a programming error that
+// the tests catch.
+func injectEnumTables(html string, tables map[string][]ui.EnumOption) string {
+	for name, opts := range tables {
+		placeholder := enumPlaceholder(name)
+		if !strings.Contains(html, placeholder) {
+			panic(fmt.Sprintf("dashboard template has no %s placeholder", placeholder))
+		}
+		b, err := json.Marshal(opts)
+		if err != nil {
+			panic(err)
+		}
+		html = strings.ReplaceAll(html, placeholder, string(b))
 	}
 	return html
 }
@@ -121,6 +158,33 @@ func getString(ip string, eoj uint32, epc byte, timeout time.Duration, decode fu
 		return ""
 	}
 	return v
+}
+
+// getEnum fetches a 1-byte state-enum epc and returns its decoded label
+// along with its raw EDT as a two-digit hex code, or two empty strings if
+// the property could not be fetched or decoded. The code lets the
+// dashboards select the matching option without reverse-looking-up the
+// label.
+func getEnum(ip string, eoj uint32, epc byte, timeout time.Duration, decode func([]byte) (string, bool)) (label, code string) {
+	edt, err := echonet.GetProperty(ip, eoj, epc, timeout)
+	if err != nil {
+		return "", ""
+	}
+	return decodeEnum(edt, decode)
+}
+
+// decodeEnum is getEnum's decoding step, split out so it can be tested
+// without a device.
+func decodeEnum(edt []byte, decode func([]byte) (string, bool)) (label, code string) {
+	label, ok := decode(edt)
+	if !ok {
+		return "", ""
+	}
+	code, ok = ui.EnumCode(edt)
+	if !ok {
+		return "", ""
+	}
+	return label, code
 }
 
 // getPtr fetches epc and decodes it with decode, returning nil if the
@@ -261,6 +325,7 @@ type batteryUIState struct {
 	EOJ                      string `json:"eoj"`
 	OperatingStatus          string `json:"operating_status,omitempty"`
 	OperationMode            string `json:"operation_mode,omitempty"`
+	OperationModeCode        string `json:"operation_mode_code,omitempty"` // raw EPC 0xDA EDT, e.g. "42"
 	RemainingCapacityPercent *int   `json:"remaining_capacity_percent,omitempty"`
 	ChargeDischargePowerW    *int32 `json:"charge_discharge_power_w,omitempty"`
 }
@@ -273,11 +338,13 @@ func renderBatteryUI(_ context.Context, _ *mcp.CallToolRequest, params *renderBa
 
 	const timeout = 5 * time.Second
 
+	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeOperationMode)
 	state := batteryUIState{
 		IP:                       params.IP,
 		EOJ:                      formatEOJ(eoj),
 		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
-		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeOperationMode),
+		OperationMode:            operationMode,
+		OperationModeCode:        operationModeCode,
 		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
 		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
 	}
@@ -348,6 +415,7 @@ type v2hUIState struct {
 	EOJ                      string   `json:"eoj"`
 	OperatingStatus          string   `json:"operating_status,omitempty"`
 	OperationMode            string   `json:"operation_mode,omitempty"`
+	OperationModeCode        string   `json:"operation_mode_code,omitempty"` // raw EPC 0xDA EDT, e.g. "42"
 	RemainingCapacityPercent *int     `json:"remaining_capacity_percent,omitempty"`
 	ChargeDischargePowerW    *int32   `json:"charge_discharge_power_w,omitempty"`
 	CumulativeChargingKWh    *float64 `json:"cumulative_charging_kwh,omitempty"`
@@ -363,11 +431,13 @@ func renderV2HUI(_ context.Context, _ *mcp.CallToolRequest, params *renderV2HUIP
 
 	const timeout = 5 * time.Second
 
+	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeV2HOperationMode)
 	state := v2hUIState{
 		IP:                       params.IP,
 		EOJ:                      formatEOJ(eoj),
 		OperatingStatus:          getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
-		OperationMode:            getString(params.IP, eoj, ui.OperationModeEPC, timeout, ui.DecodeV2HOperationMode),
+		OperationMode:            operationMode,
+		OperationModeCode:        operationModeCode,
 		RemainingCapacityPercent: getPtr(params.IP, eoj, ui.RemainingCapacityPercentEPC, timeout, ui.DecodePercent),
 		ChargeDischargePowerW:    getPtr(params.IP, eoj, ui.ChargeDischargePowerEPC, timeout, ui.DecodeSignedPowerW),
 		CumulativeChargingKWh:    getPtr(params.IP, eoj, ui.CumulativeChargingEnergyEPC, timeout, ui.DecodeCumulativeEnergyKWh),
@@ -394,9 +464,11 @@ type airconUIState struct {
 	EOJ               string `json:"eoj"`
 	OperatingStatus   string `json:"operating_status,omitempty"`
 	OperationMode     string `json:"operation_mode,omitempty"`
+	OperationModeCode string `json:"operation_mode_code,omitempty"` // raw EPC 0xB0 EDT, e.g. "42"
 	TargetTemperature *int   `json:"target_temperature,omitempty"`
 	RoomTemperature   *int   `json:"room_temperature,omitempty"`
 	AirFlowLevel      string `json:"air_flow_level,omitempty"`
+	AirFlowLevelCode  string `json:"air_flow_level_code,omitempty"` // raw EPC 0xA0 EDT, e.g. "41"
 }
 
 func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAirconUIParams) (*mcp.CallToolResult, any, error) {
@@ -407,14 +479,21 @@ func renderAirconUI(_ context.Context, _ *mcp.CallToolRequest, params *renderAir
 
 	const timeout = 5 * time.Second
 
+	operatingStatus := getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus)
+	operationMode, operationModeCode := getEnum(params.IP, eoj, ui.AirconOperationModeEPC, timeout, ui.DecodeAirconOperationMode)
+	targetTemperature := getPtr(params.IP, eoj, ui.TargetTemperatureEPC, timeout, ui.DecodeTargetTemperature)
+	roomTemperature := getPtr(params.IP, eoj, ui.RoomTemperatureEPC, timeout, ui.DecodeRoomTemperature)
+	airFlowLevel, airFlowLevelCode := getEnum(params.IP, eoj, ui.AirFlowLevelEPC, timeout, ui.DecodeAirFlowLevel)
 	state := airconUIState{
 		IP:                params.IP,
 		EOJ:               formatEOJ(eoj),
-		OperatingStatus:   getString(params.IP, eoj, ui.OperatingStatusEPC, timeout, ui.DecodeOperatingStatus),
-		OperationMode:     getString(params.IP, eoj, ui.AirconOperationModeEPC, timeout, ui.DecodeAirconOperationMode),
-		TargetTemperature: getPtr(params.IP, eoj, ui.TargetTemperatureEPC, timeout, ui.DecodeTargetTemperature),
-		RoomTemperature:   getPtr(params.IP, eoj, ui.RoomTemperatureEPC, timeout, ui.DecodeRoomTemperature),
-		AirFlowLevel:      getString(params.IP, eoj, ui.AirFlowLevelEPC, timeout, ui.DecodeAirFlowLevel),
+		OperatingStatus:   operatingStatus,
+		OperationMode:     operationMode,
+		OperationModeCode: operationModeCode,
+		TargetTemperature: targetTemperature,
+		RoomTemperature:   roomTemperature,
+		AirFlowLevel:      airFlowLevel,
+		AirFlowLevelCode:  airFlowLevelCode,
 	}
 
 	if state.OperatingStatus == "" && state.OperationMode == "" && state.TargetTemperature == nil &&

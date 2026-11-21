@@ -31,6 +31,30 @@ func DecodeAirconOperationMode(edt []byte) (string, bool) {
 	return decodeStateEnum(edt, airconOperationModeNames)
 }
 
+// AirconOperationModeOptions lists the EPC 0xB0 values
+// DecodeAirconOperationMode knows, for the air conditioner dashboard's
+// operation-mode selector.
+func AirconOperationModeOptions() []EnumOption {
+	return enumOptions(airconOperationModeNames)
+}
+
+// AirFlowLevelOptions lists the EPC 0xA0 values the air conditioner
+// dashboard offers: auto first, then levels 1-8. Labels come from
+// DecodeAirFlowLevel so they always match what render_aircon_ui reports.
+func AirFlowLevelOptions() []EnumOption {
+	edts := []byte{autoAirFlowLevelEDT}
+	for i := byte(0); i < airFlowLevelMax; i++ {
+		edts = append(edts, airFlowLevelBase+i)
+	}
+	opts := make([]EnumOption, 0, len(edts))
+	for _, edt := range edts {
+		code, _ := EnumCode([]byte{edt})
+		label, _ := DecodeAirFlowLevel([]byte{edt})
+		opts = append(opts, EnumOption{code, label})
+	}
+	return opts
+}
+
 // DecodeTargetTemperature decodes EPC 0xB3 (1 byte unsigned 0-50 Celsius, or
 // 0xFD for "undefined") into a temperature in Celsius. Returns ok=false when
 // the device reports the value as undefined.
