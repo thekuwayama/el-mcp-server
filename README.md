@@ -149,7 +149,7 @@ sequenceDiagram
 
 ### UI 表示（MCP Apps）
 
-`render_*_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML（`tools/ui/templates/*.html`）をダッシュボードとして描画します。返す JSON（`structuredContent`）の命名規則は各ツールで揃えています（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）。
+`render_*_ui` は内部で ECHONET Lite 機器通信（UDP）を行い、取得結果を通常の `CallToolResult` として返します。MCP Apps 対応クライアントはツール定義の `_meta.ui.resourceUri` を見て、埋め込み (`//go:embed`) 済みの HTML（`tools/ui/templates/*.html`。ホストとの通信やサイズ通知を担う共通スクリプト `tools/ui/templates/common.js` は起動時に各 HTML へインラインで差し込みます）をダッシュボードとして描画します。返す JSON（`structuredContent`）の命名規則は各ツールで揃えています（snake_case、単位サフィックス `_w` / `_percent` / `_kwh`）。
 
 ```mermaid
 sequenceDiagram

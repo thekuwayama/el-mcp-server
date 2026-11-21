@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,20 +14,59 @@ import (
 	"github.com/thekuwayama/el-mcp-server/tools/ui"
 )
 
+//go:embed ui/templates/common.js
+var dashboardCommonJS string
+
 //go:embed ui/templates/battery.html
-var batteryDashboardHTML string
+var batteryDashboardTemplate string
 
 //go:embed ui/templates/solar.html
-var solarDashboardHTML string
+var solarDashboardTemplate string
 
 //go:embed ui/templates/v2h.html
-var v2hDashboardHTML string
+var v2hDashboardTemplate string
 
 //go:embed ui/templates/aircon.html
-var airconDashboardHTML string
+var airconDashboardTemplate string
 
 //go:embed ui/templates/smartmeter.html
-var smartmeterDashboardHTML string
+var smartmeterDashboardTemplate string
+
+var (
+	batteryDashboardHTML    = mustInjectCommonJS("battery.html", batteryDashboardTemplate)
+	solarDashboardHTML      = mustInjectCommonJS("solar.html", solarDashboardTemplate)
+	v2hDashboardHTML        = mustInjectCommonJS("v2h.html", v2hDashboardTemplate)
+	airconDashboardHTML     = mustInjectCommonJS("aircon.html", airconDashboardTemplate)
+	smartmeterDashboardHTML = mustInjectCommonJS("smartmeter.html", smartmeterDashboardTemplate)
+)
+
+// commonJSPlaceholder marks where each dashboard template receives the shared
+// script in ui/templates/common.js.
+const commonJSPlaceholder = "<!-- el-mcp-server:common-js -->"
+
+// injectCommonJS replaces the single commonJSPlaceholder in tmpl with an
+// inline <script> holding js. ui:// resources must be served as one
+// self-contained HTML document, so the script cannot be referenced externally.
+func injectCommonJS(tmpl, js string) (string, error) {
+	if n := strings.Count(tmpl, commonJSPlaceholder); n != 1 {
+		return "", fmt.Errorf("template must contain %q exactly once, found %d", commonJSPlaceholder, n)
+	}
+	// "</script" inside the script would end the element early.
+	if strings.Contains(strings.ToLower(js), "</script") {
+		return "", fmt.Errorf("common script must not contain \"</script\"")
+	}
+	return strings.Replace(tmpl, commonJSPlaceholder, "<script>\n"+js+"</script>", 1), nil
+}
+
+// mustInjectCommonJS is injectCommonJS for the embedded templates, which are
+// fixed at build time, so a failure is a programming error.
+func mustInjectCommonJS(name, tmpl string) string {
+	html, err := injectCommonJS(tmpl, dashboardCommonJS)
+	if err != nil {
+		panic(fmt.Sprintf("dashboard template %s: %v", name, err))
+	}
+	return html
+}
 
 const batteryDashboardURI = "ui://el-mcp-server/battery"
 const solarDashboardURI = "ui://el-mcp-server/solar"
