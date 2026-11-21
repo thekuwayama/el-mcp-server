@@ -236,8 +236,6 @@ HTTP モード（Streamable HTTP）
 el-mcp-server -transport http
 ```
 
-既定では `127.0.0.1:8080`（ループバックのみ）で待ち受けます。待ち受けアドレスは `-addr` で変更できますが、`-addr :8080` のように全インターフェースで待ち受けると、認証がないため同一ネットワーク内の誰でも `set_property` などのツールを呼び出せます。信頼できるネットワーク内でのみ使用してください。
-
 ## データソース
 
 - [ECHONET Lite 規格書 Ver.1.14](https://echonet.jp/spec_v114_lite/) — フレーム構造・UDP 通信仕様
