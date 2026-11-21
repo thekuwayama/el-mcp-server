@@ -294,3 +294,26 @@ func TestSearchDeviceClassTrimsQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatEOJ(t *testing.T) {
+	// get_property / set_property echo the EOJ back in the same 6-digit
+	// uppercase form as discover_devices and render_*, whatever the input.
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"013001", "013001"},
+		{"0130", "013001"},
+		{"027d01", "027D01"},
+		{"0ef001", "0EF001"},
+	}
+	for _, c := range cases {
+		eoj, errRes := parseEOJParam(c.in)
+		if errRes != nil {
+			t.Fatalf("parseEOJParam(%q) returned an error result", c.in)
+		}
+		if got := formatEOJ(eoj); got != c.want {
+			t.Errorf("formatEOJ(parseEOJParam(%q)) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

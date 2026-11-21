@@ -172,9 +172,9 @@ func parseDiscoverResponse(data []byte, tid uint16) ([]uint32, bool) {
 	return nil, false
 }
 
-// defaultMulticastInterface returns the first up, non-loopback network
-// interface with an IPv4 address and multicast support, for use as the
-// outgoing interface of a multicast send.
+// defaultMulticastInterface returns the first up, non-loopback,
+// non-point-to-point network interface with an IPv4 address and multicast
+// support, for use as the outgoing interface of a multicast send.
 func defaultMulticastInterface() (*net.Interface, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -182,7 +182,7 @@ func defaultMulticastInterface() (*net.Interface, error) {
 	}
 
 	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagMulticast == 0 {
+		if !isMulticastCandidate(iface.Flags) {
 			continue
 		}
 		addrs, err := iface.Addrs()
@@ -197,6 +197,17 @@ func defaultMulticastInterface() (*net.Interface, error) {
 		}
 	}
 	return nil, fmt.Errorf("no active IPv4 multicast-capable network interface found")
+}
+
+// isMulticastCandidate reports whether an interface with the given flags can
+// be used to reach ECHONET Lite devices on the LAN by multicast. Point-to-point
+// interfaces are excluded: VPN tunnels such as macOS utun also carry the
+// MULTICAST flag but do not lead to the local network.
+func isMulticastCandidate(flags net.Flags) bool {
+	return flags&net.FlagUp != 0 &&
+		flags&net.FlagLoopback == 0 &&
+		flags&net.FlagPointToPoint == 0 &&
+		flags&net.FlagMulticast != 0
 }
 
 // GetProperty retrieves a single EPC value from a device via unicast UDP.

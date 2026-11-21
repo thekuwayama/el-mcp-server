@@ -258,6 +258,12 @@ func parseEOJParam(eojHex string) (uint32, *mcp.CallToolResult) {
 	return eoj, nil
 }
 
+// formatEOJ renders eoj as the 6-digit uppercase hex string used in tool
+// results, e.g. "013001", regardless of how the EOJ was given as input.
+func formatEOJ(eoj uint32) string {
+	return fmt.Sprintf("%06X", eoj)
+}
+
 // hexJoin renders edt as a space-separated uppercase hex string, e.g. "30 01".
 func hexJoin(edt []byte) string {
 	parts := make([]string, len(edt))

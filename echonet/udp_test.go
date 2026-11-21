@@ -1,6 +1,7 @@
 package echonet
 
 import (
+	"net"
 	"reflect"
 	"testing"
 )
@@ -75,6 +76,28 @@ func TestParseDiscoverResponse(t *testing.T) {
 			}
 			if !reflect.DeepEqual(eojs, tt.wantEOJs) {
 				t.Errorf("eojs = %06X, want %06X", eojs, tt.wantEOJs)
+			}
+		})
+	}
+}
+
+func TestIsMulticastCandidate(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags net.Flags
+		want  bool
+	}{
+		{"ethernet / wifi", net.FlagUp | net.FlagBroadcast | net.FlagMulticast | net.FlagRunning, true},
+		{"down", net.FlagBroadcast | net.FlagMulticast, false},
+		{"loopback", net.FlagUp | net.FlagLoopback | net.FlagMulticast, false},
+		{"no multicast", net.FlagUp | net.FlagBroadcast, false},
+		// macOS VPN tunnels (utun) are point-to-point and also have MULTICAST.
+		{"point-to-point (utun)", net.FlagUp | net.FlagPointToPoint | net.FlagMulticast | net.FlagRunning, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isMulticastCandidate(c.flags); got != c.want {
+				t.Errorf("isMulticastCandidate(%v) = %v, want %v", c.flags, got, c.want)
 			}
 		})
 	}
