@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -130,7 +131,7 @@ type setPropertyParams struct {
 	IP  string `json:"ip"  jsonschema:"機器のIPアドレス。例: 192.168.1.100"`
 	EOJ string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進)。例: 0130 または 013001"`
 	EPC string `json:"epc" jsonschema:"書き込むプロパティコード(2桁16進)。例: B0(運転モード設定)"`
-	EDT string `json:"edt" jsonschema:"書き込む値(hex文字列、1バイトごとに区切っても可)。例: 41 または 4100(マルチバイト値)"`
+	EDT string `json:"edt" jsonschema:"書き込む値(hex文字列、1バイトごとに区切っても可、最大255バイト)。例: 41 または 4100(マルチバイト値)"`
 }
 
 type setPropertyResult struct {
@@ -148,6 +149,9 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 	}
 
 	edt, err := parseHexBytes(params.EDT)
+	if errors.Is(err, errHexTooLong) {
+		return errorResult(fmt.Sprintf("EDTが長すぎます: %dバイト以下で指定してください。", echonet.MaxPDC)), nil, nil
+	}
 	if err != nil {
 		return errorResult(fmt.Sprintf("EDTの形式が正しくありません: %s", params.EDT)), nil, nil
 	}

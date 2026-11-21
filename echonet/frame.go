@@ -43,8 +43,26 @@ type Property struct {
 	EDT []byte
 }
 
-// Encode serializes the frame to a byte slice.
-func (f *Frame) Encode() []byte {
+// MaxOPC is the largest number of properties a frame can carry, since OPC is
+// a single byte.
+const MaxOPC = 0xFF
+
+// MaxPDC is the largest EDT length a property can carry, since PDC is a
+// single byte.
+const MaxPDC = 0xFF
+
+// Encode serializes the frame to a byte slice. It returns an error when the
+// number of properties or the length of an EDT does not fit in one byte, so
+// that a corrupted frame is never sent.
+func (f *Frame) Encode() ([]byte, error) {
+	if len(f.Props) > MaxOPC {
+		return nil, fmt.Errorf("too many properties: %d (max %d)", len(f.Props), MaxOPC)
+	}
+	for _, p := range f.Props {
+		if len(p.EDT) > MaxPDC {
+			return nil, fmt.Errorf("EDT too long for EPC %02X: %d bytes (max %d)", p.EPC, len(p.EDT), MaxPDC)
+		}
+	}
 	buf := []byte{EHD1, EHD2}
 	buf = append(buf, byte(f.TID>>8), byte(f.TID))
 	buf = append(buf, eojBytes(f.SEOJ)...)
@@ -56,7 +74,7 @@ func (f *Frame) Encode() []byte {
 		buf = append(buf, byte(len(p.EDT)))
 		buf = append(buf, p.EDT...)
 	}
-	return buf
+	return buf, nil
 }
 
 // Decode parses a byte slice into a Frame.
