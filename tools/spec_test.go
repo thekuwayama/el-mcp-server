@@ -262,3 +262,35 @@ func TestSearchDeviceClassEPCCountHasNoDuplicates(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchDeviceClassTrimsQuery(t *testing.T) {
+	cases := []struct {
+		query string
+		want  string // EOJ expected in the results
+	}{
+		{"エアコン", "0130"},
+		{" エアコン", "0130"},
+		{"エアコン\t", "0130"},
+		{"　蓄電池　", "027D"}, // full-width spaces
+		{" air conditioner ", "0130"},
+		{" 0130 ", "0130"},
+	}
+	for _, c := range cases {
+		t.Run(c.query, func(t *testing.T) {
+			res, _, err := searchDeviceClass(context.Background(), nil, &searchDeviceClassParams{Query: c.query})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []deviceClassResult
+			if err := json.Unmarshal([]byte(resultText(t, res)), &got); err != nil {
+				t.Fatalf("no match: %s", resultText(t, res))
+			}
+			for _, r := range got {
+				if r.EOJ == c.want {
+					return
+				}
+			}
+			t.Errorf("EOJ %s not found in %+v", c.want, got)
+		})
+	}
+}
