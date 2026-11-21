@@ -97,103 +97,117 @@ func getPtr[T any](ip string, eoj uint32, epc byte, timeout time.Duration, decod
 	return &v
 }
 
-func registerUITools(s *mcp.Server) {
-	s.AddResource(&mcp.Resource{
-		URI:      batteryDashboardURI,
-		Name:     "battery_dashboard",
-		Title:    "蓄電池ダッシュボード",
-		MIMEType: MCPAppsUIMimeType,
-	}, dashboardResourceHandler(batteryDashboardHTML))
+// uiTool describes one render_*_ui tool together with the ui:// dashboard
+// resource it renders into.
+type uiTool struct {
+	uri           string
+	resourceName  string
+	resourceTitle string
+	html          string
+	name          string
+	description   string
+	annotations   *mcp.ToolAnnotations
+	// add registers the tool with its typed handler. Handlers differ in their
+	// input type, so each entry wraps its handler with uiToolHandler.
+	add func(*mcp.Server, *mcp.Tool)
+}
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "render_battery_ui",
-		Description: "指定した蓄電池(EOJ 027Dxx)の現在状態(稼働状態・運転モード・蓄電残量・充放電電力)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		Meta: mcp.Meta{
-			"ui": map[string]any{
-				"resourceUri": batteryDashboardURI,
-			},
-		},
-	}, renderBatteryUI)
+// uiToolHandler returns a uiTool.add func that registers t with handler h,
+// letting tools with different input types share one table.
+func uiToolHandler[In any](h mcp.ToolHandlerFor[In, any]) func(*mcp.Server, *mcp.Tool) {
+	return func(s *mcp.Server, t *mcp.Tool) {
+		mcp.AddTool(s, t, h)
+	}
+}
 
-	s.AddResource(&mcp.Resource{
-		URI:      solarDashboardURI,
-		Name:     "solar_dashboard",
-		Title:    "太陽光発電ダッシュボード",
-		MIMEType: MCPAppsUIMimeType,
-	}, dashboardResourceHandler(solarDashboardHTML))
+// readOnlyUIToolAnnotations is used by render_*_ui tools that only Get
+// properties. Operations on the dashboards go through set_property.
+func readOnlyUIToolAnnotations() *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{ReadOnlyHint: true}
+}
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "render_solar_ui",
-		Description: "指定した太陽光発電システム(EOJ 0279xx)の現在状態(稼働状態・瞬時発電電力・積算発電電力量・積算売電電力量・系統連系状態・出力抑制状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。このダッシュボードは読み取り専用です。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		Meta: mcp.Meta{
-			"ui": map[string]any{
-				"resourceUri": solarDashboardURI,
-			},
-		},
-	}, renderSolarUI)
-
-	s.AddResource(&mcp.Resource{
-		URI:      v2hDashboardURI,
-		Name:     "v2h_dashboard",
-		Title:    "V2Hダッシュボード",
-		MIMEType: MCPAppsUIMimeType,
-	}, dashboardResourceHandler(v2hDashboardHTML))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "render_v2h_ui",
-		Description: "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		Meta: mcp.Meta{
-			"ui": map[string]any{
-				"resourceUri": v2hDashboardURI,
-			},
-		},
-	}, renderV2HUI)
-
-	s.AddResource(&mcp.Resource{
-		URI:      airconDashboardURI,
-		Name:     "aircon_dashboard",
-		Title:    "エアコンダッシュボード",
-		MIMEType: MCPAppsUIMimeType,
-	}, dashboardResourceHandler(airconDashboardHTML))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "render_aircon_ui",
-		Description: "指定した家庭用エアコン(EOJ 0130xx)の現在状態(稼働状態・運転モード・設定温度・室内温度・風量設定)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替え・運転モードの変更・設定温度の増減・風量の変更が可能で、操作は内部でset_propertyツールを呼び出します。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		Meta: mcp.Meta{
-			"ui": map[string]any{
-				"resourceUri": airconDashboardURI,
-			},
-		},
-	}, renderAirconUI)
-
+func uiTools() []uiTool {
 	nonDestructive := false
-	s.AddResource(&mcp.Resource{
-		URI:      smartmeterDashboardURI,
-		Name:     "smartmeter_dashboard",
-		Title:    "スマートメーターダッシュボード",
-		MIMEType: MCPAppsUIMimeType,
-	}, dashboardResourceHandler(smartmeterDashboardHTML))
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "render_smartmeter_ui",
-		Description: "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))と、指定日(dateで指定、省略時は今日)の30分毎の買電/売電電力量の履歴を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。履歴は棒グラフで表示され、ダッシュボード上の前日/翌日ボタンで表示日を切り替えられます(内部でrender_smartmeter_uiを再度呼び出します)。履歴の読み出しには積算履歴収集日(EPC E5)への書き込みが必要ですが、取得後に元の値へ戻します。このダッシュボードは操作系のコントロールを持ちません。",
-		// Not read-only: reading the history requires a SetC to EPC E5, so
-		// clients must not run this tool without confirmation. The original E5
-		// value is restored afterwards, hence non-destructive.
-		Annotations: &mcp.ToolAnnotations{
-			ReadOnlyHint:    false,
-			DestructiveHint: &nonDestructive,
+	return []uiTool{
+		{
+			uri:           batteryDashboardURI,
+			resourceName:  "battery_dashboard",
+			resourceTitle: "蓄電池ダッシュボード",
+			html:          batteryDashboardHTML,
+			name:          "render_battery_ui",
+			description:   "指定した蓄電池(EOJ 027Dxx)の現在状態(稼働状態・運転モード・蓄電残量・充放電電力)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+			annotations:   readOnlyUIToolAnnotations(),
+			add:           uiToolHandler(renderBatteryUI),
 		},
-		Meta: mcp.Meta{
-			"ui": map[string]any{
-				"resourceUri": smartmeterDashboardURI,
+		{
+			uri:           solarDashboardURI,
+			resourceName:  "solar_dashboard",
+			resourceTitle: "太陽光発電ダッシュボード",
+			html:          solarDashboardHTML,
+			name:          "render_solar_ui",
+			description:   "指定した太陽光発電システム(EOJ 0279xx)の現在状態(稼働状態・瞬時発電電力・積算発電電力量・積算売電電力量・系統連系状態・出力抑制状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。このダッシュボードは読み取り専用です。",
+			annotations:   readOnlyUIToolAnnotations(),
+			add:           uiToolHandler(renderSolarUI),
+		},
+		{
+			uri:           v2hDashboardURI,
+			resourceName:  "v2h_dashboard",
+			resourceTitle: "V2Hダッシュボード",
+			html:          v2hDashboardHTML,
+			name:          "render_v2h_ui",
+			description:   "指定したV2H(電気自動車充放電器、EOJ 027Exx)の現在状態(稼働状態・運転モード・車載電池残容量・充放電電力・積算充電/放電電力量・車両接続状態)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替えと運転モードの変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+			annotations:   readOnlyUIToolAnnotations(),
+			add:           uiToolHandler(renderV2HUI),
+		},
+		{
+			uri:           airconDashboardURI,
+			resourceName:  "aircon_dashboard",
+			resourceTitle: "エアコンダッシュボード",
+			html:          airconDashboardHTML,
+			name:          "render_aircon_ui",
+			description:   "指定した家庭用エアコン(EOJ 0130xx)の現在状態(稼働状態・運転モード・設定温度・室内温度・風量設定)を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。ダッシュボード上では稼働状態(ON/OFF)の切り替え・運転モードの変更・設定温度の増減・風量の変更が可能で、操作は内部でset_propertyツールを呼び出します。",
+			annotations:   readOnlyUIToolAnnotations(),
+			add:           uiToolHandler(renderAirconUI),
+		},
+		{
+			uri:           smartmeterDashboardURI,
+			resourceName:  "smartmeter_dashboard",
+			resourceTitle: "スマートメーターダッシュボード",
+			html:          smartmeterDashboardHTML,
+			name:          "render_smartmeter_ui",
+			description:   "指定した低圧スマート電力量メータ(EOJ 0288xx)の現在状態(稼働状態・瞬時電力・瞬時電流(R相/T相)・積算電力量(正方向))と、指定日(dateで指定、省略時は今日)の30分毎の買電/売電電力量の履歴を取得し、MCP Apps対応クライアントではダッシュボードUIとして表示します。履歴は棒グラフで表示され、ダッシュボード上の前日/翌日ボタンで表示日を切り替えられます(内部でrender_smartmeter_uiを再度呼び出します)。履歴の読み出しには積算履歴収集日(EPC E5)への書き込みが必要ですが、取得後に元の値へ戻します。このダッシュボードは操作系のコントロールを持ちません。",
+			// Not read-only: reading the history requires a SetC to EPC E5, so
+			// clients must not run this tool without confirmation. The original
+			// E5 value is restored afterwards, hence non-destructive.
+			annotations: &mcp.ToolAnnotations{
+				ReadOnlyHint:    false,
+				DestructiveHint: &nonDestructive,
 			},
+			add: uiToolHandler(renderSmartmeterUI),
 		},
-	}, renderSmartmeterUI)
+	}
+}
+
+func registerUITools(s *mcp.Server) {
+	for _, t := range uiTools() {
+		s.AddResource(&mcp.Resource{
+			URI:      t.uri,
+			Name:     t.resourceName,
+			Title:    t.resourceTitle,
+			MIMEType: MCPAppsUIMimeType,
+		}, dashboardResourceHandler(t.html))
+
+		t.add(s, &mcp.Tool{
+			Name:        t.name,
+			Description: t.description,
+			Annotations: t.annotations,
+			Meta: mcp.Meta{
+				"ui": map[string]any{
+					"resourceUri": t.uri,
+				},
+			},
+		})
+	}
 }
 
 type renderBatteryUIParams struct {
