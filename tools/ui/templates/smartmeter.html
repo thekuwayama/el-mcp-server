@@ -190,12 +190,16 @@
     document.getElementById("v-power").textContent =
       typeof state.instantaneous_power_w === "number" ? state.instantaneous_power_w + " W" : "不明";
 
-    if (typeof state.instantaneous_r_phase_a === "number" && typeof state.instantaneous_t_phase_a === "number") {
-      document.getElementById("v-currents").textContent =
-        state.instantaneous_r_phase_a + " A / " + state.instantaneous_t_phase_a + " A";
-    } else {
-      document.getElementById("v-currents").textContent = "不明";
+    // A single-phase two-wire meter has no T phase (EPC E8 reports no data
+    // for it), so a missing phase is shown as "-" while the other is kept.
+    var hasR = typeof state.instantaneous_r_phase_a === "number";
+    var hasT = typeof state.instantaneous_t_phase_a === "number";
+    var currents = "不明";
+    if (hasR || hasT) {
+      currents = (hasR ? state.instantaneous_r_phase_a + " A" : "-") + " / " +
+        (hasT ? state.instantaneous_t_phase_a + " A" : "-");
     }
+    document.getElementById("v-currents").textContent = currents;
 
     document.getElementById("v-energy").textContent =
       typeof state.cumulative_energy_kwh === "number" ? state.cumulative_energy_kwh + " kWh" : "不明";
