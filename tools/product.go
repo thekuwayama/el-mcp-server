@@ -278,6 +278,8 @@ func buildProductPageURL(page int, maker, categoryValue, keyword string) string 
 	return reqURL + "?" + strings.Join(parts, "&")
 }
 
+// fetchProductPage fetches one page of echonet.jp's product search results
+// (see buildProductPageURL) and returns the response body as a string.
 func fetchProductPage(page int, maker, category, keyword string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(buildProductPageURL(page, maker, category, keyword))
@@ -357,7 +359,7 @@ func extractProduct(n *html.Node) certifiedProduct {
 				p.CertNumber = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
 			case strings.Contains(t, "Appendixバージョン"):
 				p.AppendixVer = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
-			case strings.Contains(t, "ENL認証登録日") || strings.Contains(t, "認証登録日"):
+			case strings.Contains(t, "認証登録日"):
 				p.CertDate = strings.TrimSpace(strings.SplitN(t, ":", 2)[1])
 			case p.Name == "" && !strings.Contains(t, ":") && len(t) > 3:
 				p.Name = t
