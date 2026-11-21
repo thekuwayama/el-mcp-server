@@ -188,6 +188,15 @@ func TestParseHistoryDate(t *testing.T) {
 	}
 }
 
+// Between 0:00 and 9:00 JST the UTC date is still the previous day; with now
+// taken in jst, "today" follows the meter's JST date.
+func TestParseHistoryDateInJST(t *testing.T) {
+	now := time.Date(2026, 11, 14, 15, 5, 0, 0, time.UTC).In(jst) // 2026-11-15 00:05 JST
+	if got, err := parseHistoryDate("2026-11-15", now); err != nil || got != 0 {
+		t.Errorf("parseHistoryDate(2026-11-15) = (%d, %v), want (0, nil)", got, err)
+	}
+}
+
 // A single-phase two-wire meter reports no data for the T phase, so the state
 // must keep the R phase and omit the T phase instead of dropping both.
 func TestSmartmeterUIStateSinglePhaseCurrents(t *testing.T) {

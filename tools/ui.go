@@ -536,10 +536,16 @@ func renderAirconUI(ctx context.Context, _ *mcp.CallToolRequest, params *renderA
 // parameter and of the date it reports back.
 const smartmeterHistoryDateLayout = "2006-01-02"
 
+// jst is the time zone the meter divides days in: EPC 0xE5 selects the log by
+// days ago in JST, so "today" must be taken in JST even when the server runs
+// in another zone (e.g. a UTC container). Japan has no DST, so a fixed zone is
+// exact and, unlike time.LoadLocation, needs no tzdata on the host.
+var jst = time.FixedZone("JST", 9*60*60)
+
 type renderSmartmeterUIParams struct {
 	IP   string `json:"ip"  jsonschema:"低圧スマート電力量メータのIPアドレス。例: 192.168.1.50"`
 	EOJ  string `json:"eoj" jsonschema:"対象オブジェクトのEOJコード(4〜6桁16進、低圧スマート電力量メータクラス0288のみ対応)。例: 028801"`
-	Date string `json:"date,omitempty" jsonschema:"30分毎の電力量履歴を表示する日付(YYYY-MM-DD)。省略時は今日。今日から99日前まで指定可能。例: 2026-11-14"`
+	Date string `json:"date,omitempty" jsonschema:"30分毎の電力量履歴を表示する日付(YYYY-MM-DD)。省略時は今日。今日から99日前まで指定可能。日付はJST(日本時間)基準。例: 2026-11-14"`
 	// HistoryOnly is set by the dashboard's previous/next-day buttons, which
 	// only need the history; skipping the current-state properties keeps
 	// four EPCs out of the Get on every day change.
@@ -613,7 +619,7 @@ func renderSmartmeterUI(ctx context.Context, _ *mcp.CallToolRequest, params *ren
 		return errRes, nil, nil
 	}
 
-	now := time.Now()
+	now := time.Now().In(jst)
 	daysAgo, err := parseHistoryDate(params.Date, now)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
