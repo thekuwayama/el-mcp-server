@@ -215,6 +215,87 @@ func TestParseGetResponse(t *testing.T) {
 	}
 }
 
+func TestParseGetPropertyResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      []byte
+		want      []byte
+		wantErr   bool
+		wantNotAv bool
+	}{
+		{
+			name: "Get_Res",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x88, 0x01, 0x05, 0xFF, 0x01,
+				0x72, 0x01,
+				0xE4, 0x02, 0x00, 0x01,
+			},
+			want: []byte{0x00, 0x01},
+		},
+		{
+			name: "Get_SNA",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x88, 0x01, 0x05, 0xFF, 0x01,
+				0x52, 0x01,
+				0xE4, 0x00,
+			},
+			wantErr:   true,
+			wantNotAv: true,
+		},
+		{
+			name: "unexpected ESV",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x88, 0x01, 0x05, 0xFF, 0x01,
+				0x71, 0x01,
+				0xE4, 0x00,
+			},
+			wantErr: true,
+		},
+		{
+			name: "EPC missing from Get_Res",
+			data: []byte{
+				0x10, 0x81, 0x12, 0x34, 0x02, 0x88, 0x01, 0x05, 0xFF, 0x01,
+				0x72, 0x01,
+				0xE2, 0x01, 0x00,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := Decode(tt.data)
+			if err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			got, err := parseGetPropertyResponse(resp, 0xE4)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseGetPropertyResponse() = %v, want error", got)
+				}
+				if errors.Is(err, ErrPropertyNotAvailable) != tt.wantNotAv {
+					t.Errorf("errors.Is(%v, ErrPropertyNotAvailable) = %v, want %v", err, !tt.wantNotAv, tt.wantNotAv)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseGetPropertyResponse() error = %v", err)
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("parseGetPropertyResponse() = %X, want %X", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPropertyGetSNAMessage(t *testing.T) {
+	resp := &Frame{ESV: ESVGetSNA, Props: []Property{{EPC: 0xE4}}}
+	_, err := parseGetPropertyResponse(resp, 0xE4)
+	if want := "device returned Get_SNA (EPC E4 not available)"; err == nil || err.Error() != want {
+		t.Errorf("parseGetPropertyResponse(Get_SNA) error = %v, want %q", err, want)
+	}
+}
+
 func TestGetPropertiesNoEPCs(t *testing.T) {
 	got, err := GetProperties(context.Background(), "192.0.2.1", 0x027E01, 0)
 	if err != nil {
