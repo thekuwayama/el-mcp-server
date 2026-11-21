@@ -11,13 +11,17 @@ func TestParseDiscoverResponse(t *testing.T) {
 	instanceList := []byte{0x02, 0x01, 0x30, 0x01, 0x02, 0x7D, 0x01}
 
 	frame := func(tid uint16, esv byte, props ...Property) []byte {
-		return (&Frame{
+		data, err := (&Frame{
 			TID:   tid,
 			SEOJ:  NodeProfileEOJ,
 			DEOJ:  ControllerEOJ,
 			ESV:   esv,
 			Props: props,
 		}).Encode()
+		if err != nil {
+			t.Fatalf("Encode() error = %v", err)
+		}
+		return data
 	}
 
 	tests := []struct {
