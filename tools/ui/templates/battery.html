@@ -241,6 +241,7 @@
       document.getElementById("gauge").style.width = state.remaining_capacity_percent + "%";
     } else {
       document.getElementById("v-capacity").textContent = "不明";
+      document.getElementById("gauge").style.width = "0%";
     }
 
     if (typeof state.charge_discharge_power_w === "number") {
