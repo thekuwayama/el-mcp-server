@@ -60,13 +60,13 @@ type discoveredDevice struct {
 	EOJs []string `json:"eojs"`
 }
 
-func discoverDevices(_ context.Context, _ *mcp.CallToolRequest, params *discoverDevicesParams) (*mcp.CallToolResult, any, error) {
-	timeout := params.TimeoutSec
-	if timeout <= 0 {
-		timeout = 3
+func discoverDevices(ctx context.Context, _ *mcp.CallToolRequest, params *discoverDevicesParams) (*mcp.CallToolResult, any, error) {
+	timeoutSec := params.TimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = 3
 	}
 
-	results, err := echonet.Discover(timeout)
+	results, err := echonet.Discover(ctx, time.Duration(timeoutSec)*time.Second)
 	if err != nil {
 		return errorResult(fmt.Sprintf("機器探索エラー: %v", err)), nil, nil
 	}
@@ -101,13 +101,13 @@ type propertyValue struct {
 	ManufacturerName string `json:"manufacturer_name,omitempty"`
 }
 
-func getProperty(_ context.Context, _ *mcp.CallToolRequest, params *getPropertyParams) (*mcp.CallToolResult, any, error) {
+func getProperty(ctx context.Context, _ *mcp.CallToolRequest, params *getPropertyParams) (*mcp.CallToolResult, any, error) {
 	eoj, epcCode, errRes := parseEOJAndEPC(params.EOJ, params.EPC)
 	if errRes != nil {
 		return errRes, nil, nil
 	}
 
-	edt, err := echonet.GetProperty(params.IP, eoj, epcCode, 5*time.Second)
+	edt, err := echonet.GetProperty(ctx, params.IP, eoj, epcCode, 5*time.Second)
 	if err != nil {
 		return errorResult(fmt.Sprintf("プロパティ取得エラー: %v", err)), nil, nil
 	}
@@ -164,7 +164,7 @@ func setProperty(ctx context.Context, req *mcp.CallToolRequest, params *setPrope
 		return textResult("書き込みをキャンセルしました。"), nil, nil
 	}
 
-	if err := echonet.SetProperty(params.IP, eoj, epcCode, edt, 5*time.Second); err != nil {
+	if err := echonet.SetProperty(ctx, params.IP, eoj, epcCode, edt, 5*time.Second); err != nil {
 		return errorResult(fmt.Sprintf("プロパティ書き込みエラー: %v", err)), nil, nil
 	}
 

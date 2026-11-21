@@ -1,6 +1,8 @@
 package echonet
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -23,10 +25,34 @@ func nextTID() uint16 {
 // time, so callers share this lock instead of using an ephemeral source port.
 var udpMu sync.Mutex
 
-// Send sends a frame to the given IP address (unicast) and waits for a matching response.
-func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
+// receiveDeadline returns the earlier of now+timeout and ctx's deadline, so a
+// socket deadline never outlives the caller's context.
+func receiveDeadline(ctx context.Context, timeout time.Duration) time.Time {
+	deadline := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		return d
+	}
+	return deadline
+}
+
+// cancelOnDone unblocks any pending read or write on conn once ctx is done,
+// by moving its deadline into the past. The returned stop function must be
+// called before conn is closed.
+func cancelOnDone(ctx context.Context, conn *net.UDPConn) (stop func() bool) {
+	return context.AfterFunc(ctx, func() {
+		_ = conn.SetDeadline(time.Unix(1, 0))
+	})
+}
+
+// Send sends a frame to the given IP address (unicast) and waits for a
+// matching response, until timeout elapses or ctx is done.
+func Send(ctx context.Context, ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
 	udpMu.Lock()
 	defer udpMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	raddr := &net.UDPAddr{IP: net.ParseIP(ip), Port: UDPPort}
 	if raddr.IP == nil {
@@ -44,12 +70,16 @@ func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
 	}
 	defer conn.Close()
 
-	deadline := time.Now().Add(timeout)
-	if err := conn.SetDeadline(deadline); err != nil {
+	if err := conn.SetDeadline(receiveDeadline(ctx, timeout)); err != nil {
 		return nil, err
 	}
+	stop := cancelOnDone(ctx, conn)
+	defer stop()
 
 	if _, err := conn.WriteToUDP(data, raddr); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("write udp: %w", err)
 	}
 
@@ -57,6 +87,9 @@ func Send(ip string, frame *Frame, timeout time.Duration) (*Frame, error) {
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return nil, fmt.Errorf("read udp: %w", err)
 		}
 		if !src.IP.Equal(raddr.IP) {
@@ -80,10 +113,15 @@ type DiscoverResult struct {
 }
 
 // Discover sends an instance list Get to the ECHONET Lite multicast address
-// and collects responses until the timeout expires.
-func Discover(timeoutSec int) ([]DiscoverResult, error) {
+// and collects responses until the timeout expires. If ctx is canceled
+// first, collection stops and ctx's error is returned.
+func Discover(ctx context.Context, timeout time.Duration) ([]DiscoverResult, error) {
 	udpMu.Lock()
 	defer udpMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: UDPPort})
 	if err != nil {
@@ -107,10 +145,12 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		return nil, fmt.Errorf("set multicast interface %s: %w", iface.Name, err)
 	}
 
-	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
+	deadline := receiveDeadline(ctx, timeout)
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, err
 	}
+	stop := cancelOnDone(ctx, conn)
+	defer stop()
 
 	tid := nextTID()
 	frame := NewGetRequest(tid, NodeProfileEOJ, 0xD6)
@@ -123,6 +163,9 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		return nil, fmt.Errorf("encode frame: %w", err)
 	}
 	if _, err := conn.WriteTo(data, dst); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("multicast write: %w", err)
 	}
 
@@ -148,6 +191,11 @@ func Discover(timeoutSec int) ([]DiscoverResult, error) {
 		}
 		seen[ip] = true
 		results = append(results, DiscoverResult{IP: ip, EOJs: eojs})
+	}
+	// A canceled caller no longer wants the results. Reaching ctx's deadline,
+	// on the other hand, is just an earlier end of the collection window.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return nil, ctx.Err()
 	}
 	return results, nil
 }
@@ -211,10 +259,10 @@ func isMulticastCandidate(flags net.Flags) bool {
 }
 
 // GetProperty retrieves a single EPC value from a device via unicast UDP.
-func GetProperty(ip string, eoj uint32, epc byte, timeout time.Duration) ([]byte, error) {
+func GetProperty(ctx context.Context, ip string, eoj uint32, epc byte, timeout time.Duration) ([]byte, error) {
 	tid := nextTID()
 	req := NewGetRequest(tid, eoj, epc)
-	resp, err := Send(ip, req, timeout)
+	resp, err := Send(ctx, ip, req, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +285,7 @@ func GetProperty(ip string, eoj uint32, epc byte, timeout time.Duration) ([]byte
 // instead of one per EPC. The returned map holds only the EPCs the device
 // actually returned; with Get_SNA, EPCs it could not read (PDC = 0) are
 // omitted. An error is returned only when no usable response was received.
-func GetProperties(ip string, eoj uint32, timeout time.Duration, epcs ...byte) (map[byte][]byte, error) {
+func GetProperties(ctx context.Context, ip string, eoj uint32, timeout time.Duration, epcs ...byte) (map[byte][]byte, error) {
 	if len(epcs) == 0 {
 		return map[byte][]byte{}, nil
 	}
@@ -246,7 +294,7 @@ func GetProperties(ip string, eoj uint32, timeout time.Duration, epcs ...byte) (
 	}
 	tid := nextTID()
 	req := NewGetRequest(tid, eoj, epcs...)
-	resp, err := Send(ip, req, timeout)
+	resp, err := Send(ctx, ip, req, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -280,10 +328,10 @@ func parseGetResponse(resp *Frame, epcs []byte) (map[byte][]byte, error) {
 
 // SetProperty writes a single EPC value to a device via unicast UDP SetC,
 // waiting for the device's Set_Res (success) or SetC_SNA (failure) response.
-func SetProperty(ip string, eoj uint32, epc byte, edt []byte, timeout time.Duration) error {
+func SetProperty(ctx context.Context, ip string, eoj uint32, epc byte, edt []byte, timeout time.Duration) error {
 	tid := nextTID()
 	req := NewSetCRequest(tid, eoj, epc, edt)
-	resp, err := Send(ip, req, timeout)
+	resp, err := Send(ctx, ip, req, timeout)
 	if err != nil {
 		return err
 	}

@@ -2,9 +2,12 @@ package echonet
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseDiscoverResponse(t *testing.T) {
@@ -213,11 +216,78 @@ func TestParseGetResponse(t *testing.T) {
 }
 
 func TestGetPropertiesNoEPCs(t *testing.T) {
-	got, err := GetProperties("192.0.2.1", 0x027E01, 0)
+	got, err := GetProperties(context.Background(), "192.0.2.1", 0x027E01, 0)
 	if err != nil {
 		t.Fatalf("GetProperties() error = %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("GetProperties() = %v, want empty", got)
+	}
+}
+
+func TestReceiveDeadline(t *testing.T) {
+	// Without a ctx deadline, the timeout decides.
+	before := time.Now()
+	got := receiveDeadline(context.Background(), 5*time.Second)
+	if got.Before(before.Add(5*time.Second)) || got.After(time.Now().Add(5*time.Second)) {
+		t.Errorf("receiveDeadline(no ctx deadline) = %v, want about now+5s", got)
+	}
+
+	// An earlier ctx deadline wins over the timeout.
+	ctxDeadline := time.Now().Add(time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), ctxDeadline)
+	defer cancel()
+	if got := receiveDeadline(ctx, 5*time.Second); !got.Equal(ctxDeadline) {
+		t.Errorf("receiveDeadline(earlier ctx deadline) = %v, want %v", got, ctxDeadline)
+	}
+
+	// A later ctx deadline leaves the timeout in place.
+	ctx2, cancel2 := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
+	defer cancel2()
+	if got := receiveDeadline(ctx2, 5*time.Second); got.After(time.Now().Add(5 * time.Second)) {
+		t.Errorf("receiveDeadline(later ctx deadline) = %v, want about now+5s", got)
+	}
+}
+
+func TestCancelOnDoneUnblocksRead(t *testing.T) {
+	// Loopback with an ephemeral port: nothing is sent on the LAN.
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("ListenUDP: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatalf("SetDeadline: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := cancelOnDone(ctx, conn)
+	defer stop()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, _, err = conn.ReadFromUDP(make([]byte, 16))
+	if err == nil {
+		t.Fatal("ReadFromUDP returned without error, want deadline error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("ReadFromUDP took %v after cancel, want it to return promptly", elapsed)
+	}
+}
+
+func TestSendAndDiscoverWithCanceledContext(t *testing.T) {
+	// An already-canceled ctx must return before any socket is opened.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := Send(ctx, "192.0.2.1", NewGetRequest(1, 0x027E01, 0x80), time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("Send(canceled ctx) error = %v, want context.Canceled", err)
+	}
+	if _, err := Discover(ctx, time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("Discover(canceled ctx) error = %v, want context.Canceled", err)
 	}
 }

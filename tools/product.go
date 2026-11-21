@@ -66,7 +66,7 @@ type certifiedProduct struct {
 	CertDate    string `json:"cert_date,omitempty"`
 }
 
-func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *searchCertifiedProductsParams) (*mcp.CallToolResult, any, error) {
+func searchCertifiedProducts(ctx context.Context, _ *mcp.CallToolRequest, params *searchCertifiedProductsParams) (*mcp.CallToolResult, any, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -77,14 +77,14 @@ func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *
 
 	categoryValue := ""
 	if params.Category != "" {
-		v, err := resolveCategory(params.Category)
+		v, err := resolveCategory(ctx, params.Category)
 		if err != nil {
 			return errorResult(fmt.Sprintf("製品検索エラー: %v", err)), nil, nil
 		}
 		categoryValue = v
 	}
 
-	products, err := collectProducts(params.Maker, categoryValue, params.Keyword, limit)
+	products, err := collectProducts(ctx, params.Maker, categoryValue, params.Keyword, limit)
 	if err != nil {
 		return errorResult(fmt.Sprintf("製品検索エラー: %v", err)), nil, nil
 	}
@@ -99,10 +99,10 @@ func searchCertifiedProducts(_ context.Context, _ *mcp.CallToolRequest, params *
 // collected, the last page is reached, or maxScanPages is exhausted. maker,
 // categoryValue (a con_product_type option value) and keyword are all applied
 // server-side by echonet.jp, so every parsed product is a match.
-func collectProducts(maker, categoryValue, keyword string, limit int) ([]certifiedProduct, error) {
+func collectProducts(ctx context.Context, maker, categoryValue, keyword string, limit int) ([]certifiedProduct, error) {
 	var results []certifiedProduct
 	for page := 1; page <= maxScanPages && len(results) < limit; page++ {
-		body, err := fetchProductPage(page, maker, categoryValue, keyword)
+		body, err := fetchProductPage(ctx, page, maker, categoryValue, keyword)
 		if err != nil {
 			return nil, err
 		}
@@ -140,8 +140,8 @@ func (o categoryOption) qualifiedName() string {
 // con_product_type option value. echonet.jp ignores con_product_type unless
 // it is one of the form's option values, so the options are read from the
 // search page itself rather than hard-coded.
-func resolveCategory(category string) (string, error) {
-	body, err := fetchProductPage(1, "", "", "")
+func resolveCategory(ctx context.Context, category string) (string, error) {
+	body, err := fetchProductPage(ctx, 1, "", "", "")
 	if err != nil {
 		return "", err
 	}
@@ -278,11 +278,19 @@ func buildProductPageURL(page int, maker, categoryValue, keyword string) string 
 	return reqURL + "?" + strings.Join(parts, "&")
 }
 
+// productHTTPClient is shared across requests so connections to echonet.jp
+// are reused. Its timeout bounds a single page fetch; the tool call's ctx can
+// cancel it earlier.
+var productHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // fetchProductPage fetches one page of echonet.jp's product search results
 // (see buildProductPageURL) and returns the response body as a string.
-func fetchProductPage(page int, maker, category, keyword string) (string, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(buildProductPageURL(page, maker, category, keyword))
+func fetchProductPage(ctx context.Context, page int, maker, category, keyword string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildProductPageURL(page, maker, category, keyword), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := productHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
