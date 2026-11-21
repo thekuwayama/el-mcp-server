@@ -2,6 +2,24 @@ package tools
 
 import "github.com/modelcontextprotocol/go-sdk/mcp"
 
+// ServerName is the implementation name el-mcp-server reports to clients.
+const ServerName = "el-mcp-server"
+
+// NewServer creates the el-mcp-server MCP server with its capabilities and all
+// tools registered. version is reported as the server implementation version;
+// both the server binary and cmd/gen-mcpb-manifest build their server here so
+// the two can't drift apart.
+func NewServer(version string) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    ServerName,
+		Version: version,
+	}, &mcp.ServerOptions{
+		Capabilities: Capabilities(),
+	})
+	Register(s)
+	return s
+}
+
 // Register adds all el-mcp-server tools to the given MCP server.
 func Register(s *mcp.Server) {
 	registerSpecTools(s)
