@@ -2,6 +2,7 @@ package echonet
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -126,20 +127,15 @@ func eojBytes(eoj uint32) []byte {
 // ParseEOJHex parses a 4- or 6-character hex string to a 3-byte EOJ.
 // "0130" → 0x013001, "013001" → 0x013001
 func ParseEOJHex(s string) (uint32, error) {
-	switch len(s) {
-	case 4:
-		var g, c byte
-		if _, err := fmt.Sscanf(s, "%02X%02X", &g, &c); err != nil {
-			return 0, fmt.Errorf("invalid EOJ: %s", s)
-		}
-		return uint32(g)<<16 | uint32(c)<<8 | 0x01, nil
-	case 6:
-		var g, c, i byte
-		if _, err := fmt.Sscanf(s, "%02X%02X%02X", &g, &c, &i); err != nil {
-			return 0, fmt.Errorf("invalid EOJ: %s", s)
-		}
-		return uint32(g)<<16 | uint32(c)<<8 | uint32(i), nil
-	default:
+	if len(s) != 4 && len(s) != 6 {
 		return 0, fmt.Errorf("invalid EOJ length: %s", s)
 	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid EOJ: %s", s)
+	}
+	if len(b) == 2 {
+		return uint32(b[0])<<16 | uint32(b[1])<<8 | 0x01, nil
+	}
+	return uint32(b[0])<<16 | uint32(b[1])<<8 | uint32(b[2]), nil
 }

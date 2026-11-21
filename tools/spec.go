@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -157,14 +158,24 @@ func findClass(eojHex string) (spec.DeviceClass, bool) {
 	return spec.DeviceClass{}, false
 }
 
+// parseHexByte decodes exactly two hex digits (e.g. "B0" or "b0") into a
+// byte. Surrounding whitespace is ignored; anything else, such as a "0x"
+// prefix or extra digits, is rejected.
 func parseHexByte(s string) (byte, error) {
-	var v byte
-	_, err := fmt.Sscanf(strings.ToUpper(strings.TrimSpace(s)), "%02X", &v)
-	return v, err
+	t := strings.TrimSpace(s)
+	if len(t) != 2 {
+		return 0, fmt.Errorf("hex byte must be 2 digits: %q", s)
+	}
+	b, err := hex.DecodeString(t)
+	if err != nil {
+		return 0, fmt.Errorf("invalid hex byte %q: %w", s, err)
+	}
+	return b[0], nil
 }
 
 // parseHexBytes decodes a whitespace-separated or contiguous hex string (e.g.
-// "30" or "FF 01") into a byte slice.
+// "30" or "FF 01") into a byte slice. Every character other than the spaces
+// must be a hex digit.
 func parseHexBytes(s string) ([]byte, error) {
 	hexStr := strings.ReplaceAll(strings.TrimSpace(s), " ", "")
 	if hexStr == "" {
@@ -173,13 +184,9 @@ func parseHexBytes(s string) ([]byte, error) {
 	if len(hexStr)%2 != 0 {
 		return nil, fmt.Errorf("odd-length hex string: %s", s)
 	}
-	edt := make([]byte, len(hexStr)/2)
-	for i := range edt {
-		b, err := parseHexByte(hexStr[i*2 : i*2+2])
-		if err != nil {
-			return nil, fmt.Errorf("invalid hex byte in %q: %w", s, err)
-		}
-		edt[i] = b
+	edt, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex string %q: %w", s, err)
 	}
 	return edt, nil
 }
