@@ -4,6 +4,7 @@
 
 VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
 LDFLAGS := -X main.version=$(VERSION)
+MCPB_VERSION := 2.1.2
 MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
 RELEASE_URL := https://github.com/thekuwayama/el-mcp-server/releases/download
 MANUFACTURERS_DIR := echonet/spec/manufacturers
@@ -32,7 +33,7 @@ mcpb:
 		rm -rf $$dir; mkdir -p $$dir; \
 		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch go build -ldflags "$(LDFLAGS)" -o $$dir/$$bin .; \
 		go run ./cmd/gen-mcpb-manifest -platform $$platform -version $(VERSION) -o $$dir/manifest.json; \
-		npx --yes @anthropic-ai/mcpb pack $$dir $$out; \
+		npx --yes @anthropic-ai/mcpb@$(MCPB_VERSION) pack $$dir $$out; \
 	done
 
 ## generate server.json for the MCP Registry
