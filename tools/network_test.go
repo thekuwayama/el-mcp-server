@@ -30,115 +30,133 @@ func TestFormElicitationSupported(t *testing.T) {
 	}
 }
 
-// newTestSession connects an in-memory client/server pair and returns the
-// server-side session, so confirmPropertyWrite can be exercised against a
-// real (non-mocked) *mcp.ServerSession without touching UDP.
-func newTestSession(t *testing.T, elicitationHandler func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ServerSession {
+// callConfirmTool connects an in-memory client/server pair on the given
+// protocol version and calls a tool whose handler runs confirmPropertyWrite
+// with the request's client capabilities and params, so the multi round-trip
+// confirmation is exercised end to end through the SDK without touching UDP.
+// It returns the tool's text output ("confirmed" or "cancelled").
+func callConfirmTool(t *testing.T, protocolVersion string, epc string, elicitationHandler func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) (string, error) {
 	t.Helper()
 	ctx := context.Background()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.0"}, nil)
-	clientTransport, serverTransport := mcp.NewInMemoryTransports()
-
-	serverSessionCh := make(chan *mcp.ServerSession, 1)
-	go func() {
-		ss, err := server.Connect(ctx, serverTransport, nil)
-		if err == nil {
-			serverSessionCh <- ss
+	mcp.AddTool(server, &mcp.Tool{Name: "confirm"}, func(_ context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, any, error) {
+		confirmed, pending := confirmPropertyWrite(req.ClientCapabilities(), req.Params, "192.168.1.100", "027D01", epc, "30")
+		if pending != nil {
+			return pending, nil, nil
 		}
-	}()
+		if confirmed {
+			return textResult("confirmed"), nil, nil
+		}
+		return textResult("cancelled"), nil, nil
+	})
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect() error = %v", err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, &mcp.ClientOptions{
 		ElicitationHandler: elicitationHandler,
 	})
-	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	cs, err := client.Connect(ctx, clientTransport, &mcp.ClientSessionOptions{ProtocolVersion: protocolVersion})
 	if err != nil {
 		t.Fatalf("client.Connect() error = %v", err)
 	}
-	t.Cleanup(func() { _ = clientSession.Close() })
+	t.Cleanup(func() { _ = cs.Close() })
 
-	ss := <-serverSessionCh
-	t.Cleanup(func() { _ = ss.Close() })
-	return ss
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "confirm"})
+	if err != nil {
+		return "", err
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("CallTool() content = %v, want one text content", res.Content)
+	}
+	text, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("CallTool() content[0] = %T, want *mcp.TextContent", res.Content[0])
+	}
+	return text.Text, nil
 }
 
 func TestConfirmPropertyWrite(t *testing.T) {
-	t.Run("no elicitation handler skips confirmation", func(t *testing.T) {
-		session := newTestSession(t, nil)
-		confirmed, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "027D01", "80", "30")
-		if err != nil {
-			t.Fatalf("confirmPropertyWrite() error = %v", err)
+	accept := func(confirm map[string]any) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		return func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			return &mcp.ElicitResult{Action: "accept", Content: confirm}, nil
 		}
-		if !confirmed {
-			t.Errorf("confirmPropertyWrite() = false, want true (should skip confirmation)")
-		}
-	})
-
-	t.Run("user accepts with confirm=true", func(t *testing.T) {
-		session := newTestSession(t, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"confirm": true}}, nil
-		})
-		confirmed, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "027D01", "80", "30")
-		if err != nil {
-			t.Fatalf("confirmPropertyWrite() error = %v", err)
-		}
-		if !confirmed {
-			t.Errorf("confirmPropertyWrite() = false, want true")
-		}
-	})
-
-	t.Run("user accepts default (confirm omitted, defaults false)", func(t *testing.T) {
-		session := newTestSession(t, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{}}, nil
-		})
-		confirmed, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "027D01", "80", "30")
-		if err != nil {
-			t.Fatalf("confirmPropertyWrite() error = %v", err)
-		}
-		if confirmed {
-			t.Errorf("confirmPropertyWrite() = true, want false (schema default is false)")
-		}
-	})
-
-	t.Run("user declines", func(t *testing.T) {
-		session := newTestSession(t, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	}
+	cases := []struct {
+		name    string
+		handler func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)
+		want    string
+	}{
+		{"no elicitation handler skips confirmation", nil, "confirmed"},
+		{"user accepts with confirm=true", accept(map[string]any{"confirm": true}), "confirmed"},
+		{"user accepts default (confirm omitted, defaults false)", accept(map[string]any{}), "cancelled"},
+		{"user declines", func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 			return &mcp.ElicitResult{Action: "decline"}, nil
-		})
-		confirmed, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "027D01", "80", "30")
-		if err != nil {
-			t.Fatalf("confirmPropertyWrite() error = %v", err)
+		}, "cancelled"},
+	}
+	// "" negotiates the latest protocol (input requests are returned to the
+	// client); 2025-11-25 exercises the SDK's elicitation/create fallback.
+	for _, pv := range []string{"", "2025-11-25"} {
+		for _, c := range cases {
+			t.Run(c.name+" (protocol "+pv+")", func(t *testing.T) {
+				got, err := callConfirmTool(t, pv, "80", c.handler)
+				if err != nil {
+					t.Fatalf("CallTool() error = %v", err)
+				}
+				if got != c.want {
+					t.Errorf("CallTool() = %q, want %q", got, c.want)
+				}
+			})
 		}
-		if confirmed {
-			t.Errorf("confirmPropertyWrite() = true, want false")
-		}
-	})
 
-	t.Run("message shows the formatted EPC", func(t *testing.T) {
-		var msg string
-		session := newTestSession(t, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			msg = req.Params.Message
-			return &mcp.ElicitResult{Action: "decline"}, nil
+		t.Run("message shows the formatted EPC (protocol "+pv+")", func(t *testing.T) {
+			var msg string
+			_, epc, errRes := parseEOJAndEPC("013001", " b0 ")
+			if errRes != nil {
+				t.Fatal("parseEOJAndEPC() returned an error result")
+			}
+			if _, err := callConfirmTool(t, pv, formatEPC(epc), func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				msg = req.Params.Message
+				return &mcp.ElicitResult{Action: "decline"}, nil
+			}); err != nil {
+				t.Fatalf("CallTool() error = %v", err)
+			}
+			if !strings.Contains(msg, "EPC B0 に") {
+				t.Errorf("elicitation message = %q, want it to contain %q", msg, "EPC B0 に")
+			}
 		})
-		_, epc, errRes := parseEOJAndEPC("013001", " b0 ")
-		if errRes != nil {
-			t.Fatal("parseEOJAndEPC() returned an error result")
-		}
-		if _, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "013001", formatEPC(epc), "41"); err != nil {
-			t.Fatalf("confirmPropertyWrite() error = %v", err)
-		}
-		if !strings.Contains(msg, "EPC B0 に") {
-			t.Errorf("elicitation message = %q, want it to contain %q", msg, "EPC B0 に")
-		}
-	})
 
-	t.Run("client elicitation error propagates", func(t *testing.T) {
-		wantErr := errors.New("boom")
-		session := newTestSession(t, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return nil, wantErr
+		t.Run("client elicitation error fails the call (protocol "+pv+")", func(t *testing.T) {
+			wantErr := errors.New("boom")
+			_, err := callConfirmTool(t, pv, "80", func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				return nil, wantErr
+			})
+			if err == nil {
+				t.Fatal("CallTool() error = nil, want non-nil")
+			}
 		})
-		_, err := confirmPropertyWrite(context.Background(), session, "192.168.1.100", "027D01", "80", "30")
-		if err == nil {
-			t.Fatal("confirmPropertyWrite() error = nil, want non-nil")
+	}
+
+	t.Run("answer for a different write asks again", func(t *testing.T) {
+		caps := &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{}}
+		_, first := confirmPropertyWrite(caps, &mcp.CallToolParamsRaw{}, "192.168.1.100", "027D01", "80", "30")
+		if first == nil {
+			t.Fatal("confirmPropertyWrite() pending = nil, want an input request")
+		}
+		params := &mcp.CallToolParamsRaw{
+			InputResponses: mcp.InputResponseMap{confirmInputKey: &mcp.ElicitResult{Action: "accept", Content: map[string]any{"confirm": true}}},
+			RequestState:   first.RequestState,
+		}
+		if confirmed, pending := confirmPropertyWrite(caps, params, "192.168.1.100", "027D01", "80", "30"); !confirmed || pending != nil {
+			t.Errorf("same write: confirmed = %v, pending = %v, want true, nil", confirmed, pending)
+		}
+		if confirmed, pending := confirmPropertyWrite(caps, params, "192.168.1.100", "027D01", "80", "31"); confirmed || pending == nil {
+			t.Errorf("different EDT: confirmed = %v, pending = %v, want false, non-nil", confirmed, pending)
 		}
 	})
 }
