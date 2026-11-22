@@ -251,7 +251,7 @@ el-mcp-server -transport http
 
 ## 制限事項
 
-- 認証機構を実装していません。[MCP の Authorization 仕様](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)では、認証をサポートする場合、HTTP ベーストランスポートの実装は OAuth 2.1 ベースの同仕様に準拠すべき（SHOULD）とされていますが、本サーバーは未対応です。HTTP モードは信頼できるネットワーク内でのみ使用してください
+- 認証機構を実装していません。[MCP の Authorization 仕様](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)では、認証をサポートする場合、HTTP ベーストランスポートの実装は OAuth 2.1 ベースの同仕様に準拠すべき（SHOULD）とされていますが、本サーバーは未対応です。HTTP モードは信頼できるネットワーク内でのみ使用してください。なお、ブラウザ上の Web ページからのクロスオリジンリクエスト（`Origin` / `Sec-Fetch-Site` で判定）は 403 で拒否します
 - 機器への書き込みは `set_property`（SetC）のみ対応しています。SetI（応答なしの書き込み）は未実装です
 - `set_property` は機器の実際の状態（運転モード・温度設定など）を変更します。呼び出し前に対象 EPC が書き込み可能か、EDT が正しい形式かを `get_epc_detail` で確認してください
 - `search_certified_products` の `maker` / `category` / `keyword` はすべて echonet.jp 側の検索フォームで絞り込みます。`maker` は echonet.jp 上の日本語表記（例: `パナソニック`）に部分一致するため、英語表記（例: `Panasonic`）では見つかりません。`category` は echonet.jp の機種カテゴリ名（例: `家庭用エアコン`）で指定します。指定時は検索ページからカテゴリ一覧を取得して対応する値に変換します。`limit` の上限は 100 件です

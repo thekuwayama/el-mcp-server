@@ -38,9 +38,7 @@ func main() {
 		}
 
 	case "http":
-		handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
-			return server
-		}, nil)
+		handler := newHTTPHandler(server)
 		log.Printf("el-mcp-server listening on %s (HTTP/Streamable)", *addr)
 		if err := http.ListenAndServe(*addr, handler); err != nil {
 			log.Fatalf("http server error: %v", err)
@@ -50,4 +48,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown transport: %s (use stdio or http)\n", *transport)
 		os.Exit(1)
 	}
+}
+
+// newHTTPHandler returns the Streamable HTTP handler wrapped with cross-origin
+// protection. Binding to loopback is not an authentication boundary: without
+// this, a web page open in the user's browser could send cross-origin requests
+// to the local server (and e.g. call set_property). The SDK's built-in DNS
+// rebinding protection only checks the Host header, so Origin /
+// Sec-Fetch-Site is verified here.
+func newHTTPHandler(server *mcp.Server) http.Handler {
+	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
+		return server
+	}, nil)
+	return http.NewCrossOriginProtection().Handler(handler)
 }
