@@ -13,33 +13,17 @@ description: echonet.jp のメーカーコード一覧 XLSX を取得し、echon
 
 `echonet/spec/manufacturers/VERSION` の 1 行目（例: `list_code.xlsx (2026-07-19)`）の日付を確認する。最近更新済みであれば作業不要。
 
-### 2. XLSX のダウンロード
+### 2. 再生成
 
 ```bash
-curl -sL -o /tmp/list_code.xlsx \
-  "https://echonet.jp/wp/wp-content/uploads/pdf/General/Echonet/ManufacturerCode/list_code.xlsx"
-file /tmp/list_code.xlsx   # "Microsoft Excel 2007+" であることを確認
+make manufacturers
 ```
 
-URL が変わっていた場合は echonet.jp のメーカーコード配布ページから最新の XLSX URL を取得する。
+`VERSION` の 2 行目の URL から XLSX を取得し、`cmd/gen-manufacturers` で `codes.json` を上書き生成する。`codes.json` に差分があるときだけ `VERSION` の日付を JST で更新する。
 
-### 3. JSON 生成
+URL が変わっていた場合は echonet.jp のメーカーコード配布ページから最新の XLSX URL を取得し、`VERSION` の 2 行目を書き換えてから実行する。
 
-`cmd/gen-manufacturers` が XLSX を解析して `echonet/spec/manufacturers/codes.json` を上書き生成する:
-
-```bash
-go run ./cmd/gen-manufacturers /tmp/list_code.xlsx
-```
-
-### 4. VERSION 更新
-
-```bash
-DATE=$(date +%Y-%m-%d)
-printf "list_code.xlsx (%s)\nhttps://echonet.jp/wp/wp-content/uploads/pdf/General/Echonet/ManufacturerCode/list_code.xlsx\n" \
-  "$DATE" > echonet/spec/manufacturers/VERSION
-```
-
-### 5. ビルドと動作確認
+### 3. ビルドと動作確認
 
 ```bash
 go build -o el-mcp-server .
@@ -47,7 +31,7 @@ go build -o el-mcp-server .
 
 `get_property` で EPC 0x8A を取得した際に `manufacturer_name` フィールドが正しく返ることを確認する。
 
-### 6. 差分確認とコミット
+### 4. 差分確認とコミット
 
 ```bash
 git diff --stat echonet/spec/manufacturers/
