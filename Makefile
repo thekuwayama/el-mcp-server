@@ -1,19 +1,13 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build test mcpb server-json clean
+.PHONY: help build test mcpb server-json generate manufacturers mra clean
 
-# release version (JST date, same as the release tag). Embedded in the binary
-# (reported to MCP clients), the .mcpb manifest and the .mcpb file names
 VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
-
-# embed VERSION into main.version (plain go build leaves it as "dev")
 LDFLAGS := -X main.version=$(VERSION)
-
-# .mcpb targets as GOOS/GOARCH/mcpb-platform
 MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
-
-# GitHub Releases URL where the .mcpb bundles are published
 RELEASE_URL := https://github.com/thekuwayama/el-mcp-server/releases/download
+MANUFACTURERS_DIR := echonet/spec/manufacturers
+MRA_DIR := echonet/spec/mra
 
 ## show this help
 help:
@@ -51,6 +45,24 @@ server-json:
 			'. + [{registryType: "mcpb", identifier: $$url, fileSha256: $$sha, transport: {type: "stdio"}}]'); \
 	done; \
 	jq --arg v "$(VERSION)" --argjson pkgs "$$pkgs" '.version = $$v | .packages = $$pkgs' server.template.json > server.json
+
+## regenerate spec data (manufacturer codes, MRA)
+generate: manufacturers mra
+
+## regenerate manufacturer codes from echonet.jp
+manufacturers:
+	@set -e; url=$$(sed -n '2p' $(MANUFACTURERS_DIR)/VERSION); \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	cp $(MANUFACTURERS_DIR)/codes.json $$tmp/codes.json.orig; \
+	curl -fsSL -o $$tmp/list_code.xlsx "$$url"; \
+	go run ./cmd/gen-manufacturers $$tmp/list_code.xlsx; \
+	if ! cmp -s $$tmp/codes.json.orig $(MANUFACTURERS_DIR)/codes.json; then \
+		printf 'list_code.xlsx (%s)\n%s\n' "$$(TZ=Asia/Tokyo date +%Y-%m-%d)" "$$url" > $(MANUFACTURERS_DIR)/VERSION; \
+	fi
+
+## re-fetch the MRA spec of the version recorded in echonet/spec/mra/VERSION
+mra:
+	go run ./cmd/update-mra "$$(sed -n '2p' $(MRA_DIR)/VERSION)" "$$(head -1 $(MRA_DIR)/VERSION)"
 
 ## remove build artifacts
 clean:

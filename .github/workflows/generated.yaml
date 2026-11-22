@@ -15,17 +15,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Regenerate manufacturer codes
-        run: |
-          URL=$(sed -n '2p' echonet/spec/manufacturers/VERSION)
-          curl -fsSL -o /tmp/list_code.xlsx "$URL"
-          go run ./cmd/gen-manufacturers /tmp/list_code.xlsx
-
-      - name: Regenerate MRA spec
-        run: |
-          VERSION=$(head -1 echonet/spec/mra/VERSION)
-          URL=$(sed -n '2p' echonet/spec/mra/VERSION)
-          go run ./cmd/update-mra "$URL" "$VERSION"
+      - name: Regenerate generated files
+        run: make generate
 
       - name: Check for diff
         run: git diff --exit-code echonet/spec/manufacturers/codes.json echonet/spec/mra/
