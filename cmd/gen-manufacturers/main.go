@@ -1,7 +1,13 @@
 // gen-manufacturers parses the ECHONET manufacturer code XLSX and writes
-// echonet/spec/manufacturers/codes.json. Run from the repository root:
+// echonet/spec/manufacturers/codes.json. Usually run via `make manufacturers`
+// (monthly in the generated.yaml workflow), which downloads the XLSX from the
+// URL on line 2 of echonet/spec/manufacturers/VERSION. To run it directly
+// from the repository root:
 //
 //	go run ./cmd/gen-manufacturers <path/to/list_code.xlsx>
+//
+// Codes are read from column A as 6-digit (3-byte) uppercase hex and names
+// from column B. If the XLSX layout changes, adjust parseXLSX.
 package main
 
 import (
@@ -56,6 +62,8 @@ type sst struct {
 	Items []si `xml:"si"`
 }
 
+// si maps only <t> and <r> on purpose: <rPh> holds furigana (phonetic
+// readings), and including it would mix katakana readings into company names.
 type si struct {
 	T  string `xml:"t"`
 	Rs []r    `xml:"r"`
