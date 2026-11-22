@@ -3,3 +3,4 @@
 /mcpb/build/
 /mcpb/*.mcpb
 /server.json
+/node_modules/
