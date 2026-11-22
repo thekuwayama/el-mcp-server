@@ -4,7 +4,6 @@
 
 VERSION ?= $(shell TZ=Asia/Tokyo date +%Y%m%d)
 LDFLAGS := -X main.version=$(VERSION)
-MCPB_VERSION := 2.1.2
 MCPB_TARGETS := darwin/arm64/darwin windows/amd64/win32
 RELEASE_URL := https://github.com/thekuwayama/el-mcp-server/releases/download
 MANUFACTURERS_DIR := echonet/spec/manufacturers
@@ -23,7 +22,7 @@ test:
 	go test ./...
 
 ## cross-build the .mcpb bundles (darwin_arm64, windows_amd64)
-mcpb:
+mcpb: node_modules
 	@set -e; for t in $(MCPB_TARGETS); do \
 		goos=$${t%%/*}; rest=$${t#*/}; goarch=$${rest%%/*}; platform=$${rest#*/}; \
 		dir=mcpb/build/$${goos}_$${goarch}; \
@@ -33,8 +32,12 @@ mcpb:
 		rm -rf $$dir; mkdir -p $$dir; \
 		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch go build -ldflags "$(LDFLAGS)" -o $$dir/$$bin .; \
 		go run ./cmd/gen-mcpb-manifest -platform $$platform -version $(VERSION) -o $$dir/manifest.json; \
-		npx --yes @anthropic-ai/mcpb@$(MCPB_VERSION) pack $$dir $$out; \
+		npx --no-install mcpb pack $$dir $$out; \
 	done
+
+node_modules: package.json package-lock.json
+	npm ci --ignore-scripts --no-audit --no-fund
+	@touch $@
 
 ## generate server.json for the MCP Registry
 server-json:

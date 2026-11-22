@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Node.js tooling used to pack the .mcpb bundles (see the mcpb target in the Makefile)",
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}
