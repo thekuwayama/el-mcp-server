@@ -182,10 +182,10 @@ sequenceDiagram
 Go 1.26 以上が必要です。
 
 ```bash
-go install github.com/thekuwayama/el-mcp-server@latest
+go install github.com/thekuwayama/el-mcp-server@20261122
 ```
 
-バイナリは `$(go env GOPATH)/bin/el-mcp-server` に配置されます。更新するときは同じコマンドを再実行してください。
+`@` の後ろには [Releases](https://github.com/thekuwayama/el-mcp-server/releases) のタグ（リリース日）を指定します。`@latest` でも入りますが、main の最新コミットを取得するため、意図しない変更を取り込まないようバージョンを固定することを推奨します。バイナリは `$(go env GOPATH)/bin/el-mcp-server` に配置されます。更新するときは新しいタグを指定して再実行してください。
 
 ### Claude Code
 
