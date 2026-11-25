@@ -48,7 +48,7 @@ server-json:
 		pkgs=$$(echo "$$pkgs" | jq -c --arg url "$(RELEASE_URL)/$(VERSION)/$$file" --arg sha "$$sha" \
 			'. + [{registryType: "mcpb", identifier: $$url, fileSha256: $$sha, transport: {type: "stdio"}}]'); \
 	done; \
-	jq --arg v "$(VERSION)" --argjson pkgs "$$pkgs" '.version = $$v | .packages = $$pkgs' server.template.json > server.json
+	jq --arg v "$(VERSION)" --argjson pkgs "$$pkgs" '.version = $$v | .packages = $$pkgs' mcpb/server.template.json > server.json
 
 ## regenerate spec data (manufacturer codes, MRA)
 generate: manufacturers mra
