@@ -148,7 +148,7 @@ func TestUIToolResources(t *testing.T) {
 }
 
 // TestNewServer checks that NewServer reports the given version and the
-// MCP Apps capability, and registers the tools.
+// MCP Apps and Skills capabilities, and registers the tools.
 func TestNewServer(t *testing.T) {
 	const version = "20260101"
 	cs := newClientSession(t, NewServer(version))
@@ -165,6 +165,9 @@ func TestNewServer(t *testing.T) {
 	}
 	if init.Capabilities == nil || init.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
 		t.Error("capabilities do not advertise the io.modelcontextprotocol/ui extension")
+	}
+	if init.Capabilities == nil || init.Capabilities.Extensions[SkillsExtension] == nil {
+		t.Errorf("capabilities do not advertise the %s extension", SkillsExtension)
 	}
 
 	res, err := cs.ListTools(context.Background(), nil)
