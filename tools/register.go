@@ -26,10 +26,12 @@ func Register(s *mcp.Server) {
 	registerNetworkTools(s)
 	registerProductTools(s)
 	registerUITools(s)
+	registerSkills(s)
 }
 
 // Capabilities returns the server capabilities required by el-mcp-server,
-// including the MCP Apps (SEP-1865) UI extension advertisement, on top of
+// including the MCP Apps (SEP-1865) UI and Skills over MCP (SEP-2640)
+// extension advertisements, on top of
 // the SDK's historical default of a bare logging capability.
 func Capabilities() *mcp.ServerCapabilities {
 	caps := &mcp.ServerCapabilities{
@@ -38,5 +40,6 @@ func Capabilities() *mcp.ServerCapabilities {
 	caps.AddExtension("io.modelcontextprotocol/ui", map[string]any{
 		"mimeTypes": []string{MCPAppsUIMimeType},
 	})
+	caps.AddExtension(SkillsExtension, nil)
 	return caps
 }
